@@ -202,17 +202,19 @@ people near the exits use the open door they are lined up with.
 
 | Scenario | Episodes | Expected decision | Outcome |
 |---|---|---|---|
-| Zone C filling (WARN, 9 minutes to 4.5/m²) | 5 | proposal | 5/5, all "meter both gates to 150/min", each citing its own forecast |
-| Entrance E1, pushing, density falling | 5 | proposal | 5/5, an announcement asking people to stop pushing |
+| Zone C filling (WARN, about 9 minutes to 4.5/m²) | 5 | proposal | 5/5, all "meter both gates to 150/min", each citing its own forecast |
+| Entrance E1, pushing, density falling | 5 | proposal | 4/5 an announcement asking people to stop pushing; once it closed without action, although its reason said an announcement would be sufficient |
 | Entrance E1, camera knocked | 5 | recalibration request | 5/5, after 2 or 3 tool calls |
 | Zone C, model endpoint unreachable | 2 | deterministic planner | 2/2 |
 
-Median 6 tool calls and 14 s per model episode; no refused calls in the final run. Earlier runs
-showed what the guards are for: the model wrote "stable for 10 minutes" when no tool returned 10
-(now refused), named actions without their target (now refused or filled in when unambiguous),
-and once took the minutes left from an action's forecast instead of the zone's state (the prompt
-now names the field). One earlier episode met an out-of-memory error inside `check_camera`; the
-agent treated the camera as unverified and asked for recalibration.
+16 of 17 overall; median 6 to 7 tool calls and 15 s per model episode. Two calls were refused in
+the final run (a `meter_entry` with no target where three gates exist); the model named the
+target on its next call. Earlier runs showed what the other guards are for: the model wrote
+"stable for 10 minutes" when no tool returned 10 (now refused), once took the minutes left from
+an action's forecast instead of the zone's state (the prompt now names the field), and once
+proposed holding both gates when metering them had the same predicted peak (now refused in
+favour of the less disruptive action). One earlier episode met an out-of-memory error inside
+`check_camera`; the agent treated the camera as unverified and asked for recalibration.
 
 ### 6.6 Test D: counting on oblique street CCTV
 
