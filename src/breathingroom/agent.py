@@ -33,6 +33,9 @@ from .trace import Trace
 MODEL_ID = os.environ.get("BR_MODEL_ID", "openai.gpt-oss-120b")
 MANTLE_URL = os.environ.get("BR_MANTLE_URL", "https://bedrock-mantle.us-east-1.api.aws/v1")
 MAX_STEPS = 10
+# how disruptive each kind of action is for the crowd; a proposal may not skip a less disruptive
+# action whose predicted peak (with its measured error) is within 0.25/m2
+DISRUPTION = {"send_steward": 0, "announce": 0, "open_exit": 0, "meter_entry": 1, "hold_entry": 2}
 
 
 @dataclass
@@ -82,7 +85,8 @@ Rules:
 3. Compare at least two actions with forecast_action, then propose the one whose
    peak_with_error stays lowest with the least disruption. peak_with_error adds the error this
    forecast made for that action when tested against the crowd simulation; an action with a
-   large measured error is less certain to work. Holding an entrance is the last resort.
+   large measured error is less certain to work. Holding an entrance is the last resort: a
+   proposal that skips a less disruptive action within 0.25/m2 is refused.
    The forecast models crowd numbers only. When the zone is flagged for pushing and the
    density is not rising, a steward at the spot or an announcement is the proportionate
    action; their forecast equals the no-action forecast, and you say so.
@@ -208,6 +212,15 @@ class Episode:
         radio = (a.get("radio_message") or "").strip()
         if not radio or len(radio.split()) > 40:
             return {"error": "radio_message must be present and at most 30 words"}
+        mine = self._ranked(fid)
+        better = [k for k in self.forecasts if k != fid and self.forecast_actions[k]["kind"] != "none"
+                  and DISRUPTION.get(self.forecast_actions[k]["kind"], 3) < DISRUPTION.get(act["kind"], 3)
+                  and self._ranked(k) <= mine + 0.25]
+        if better:
+            alt = self.forecast_actions[better[0]]
+            return {"error": f"{alt['kind']}:{alt['target']} is less disruptive and its peak with error "
+                             f"({self._ranked(better[0]):.2f}) is within 0.25/m2 of this one ({mine:.2f}); "
+                             f"propose it (forecast_id {better[0]})"}
         ungrounded = self.ungrounded_numbers(radio)
         if ungrounded:
             return {"error": f"radio_message states {', '.join(ungrounded)}, which no tool returned in this episode; "
@@ -229,6 +242,10 @@ class Episode:
             alternatives=alts, radio=radio, rationale=(a.get("rationale") or "").strip(), evidence=evidence,
             created_t=self.clock(), planner=self.planner)
         return {"ok": True, "proposal_id": self.proposal.id, "message": "sent to the steward for approval"}
+
+    def _ranked(self, fid: str) -> float:
+        """Peak density of a forecast plus the measured error of its action."""
+        return self.forecasts[fid].peak_rho + (self.forecast_actions[fid].get("forecast_error") or 0.0)
 
     def ungrounded_numbers(self, text: str) -> list[str]:
         """Numbers in `text` that match no number returned by a tool in this episode (or the
@@ -331,7 +348,7 @@ def run_deterministic(ep: Episode) -> Episode:
         out = ep.call("forecast_action", {"zone": ep.zone, "kind": a["kind"], "target": a.get("target", ""),
                                           "rate_per_min": a.get("rate_per_min", 60)})
         if "forecast_id" in out:
-            disruption = {"send_steward": 0, "announce": 0, "open_exit": 0, "meter_entry": 1, "hold_entry": 2}.get(a["kind"], 3)
+            disruption = DISRUPTION.get(a["kind"], 3)
             ranked = out["peak_with_error"] if out.get("peak_with_error") is not None else out["peak_density_10min"]
             results.append((ranked, disruption, out))
     if not results:

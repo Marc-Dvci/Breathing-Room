@@ -87,3 +87,13 @@ def test_approval_forecasts_the_action_again_and_applies_it(tmp_path):
     assert out["ok"] and out["applied"]
     assert p.predicted["at_approval"] and p.predicted_at_proposal["peak_density"] is not None
     assert p.verify["start_t"] == rt.twin.state.t
+
+
+def test_guard_refuses_a_more_disruptive_action_when_a_gentler_one_is_as_good(tmp_path):
+    ep = episode(tmp_path)
+    hold = ep.call("forecast_action", {"zone": "Zone C", "kind": "hold_entry", "target": "gates"})
+    meter = ep.call("forecast_action", {"zone": "Zone C", "kind": "meter_entry", "target": "gate A", "rate_per_min": 1})
+    assert abs(hold["peak_density_10min"] - meter["peak_density_10min"]) <= 0.25
+    out = ep.call("propose_action", {"zone": "Zone C", "forecast_id": hold["forecast_id"], "radio_message": "Zone C. Hold gates.",
+                                     "rationale": "r"})
+    assert "error" in out and meter["forecast_id"] in out["error"]
