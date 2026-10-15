@@ -18,6 +18,12 @@ RES = Path(__file__).resolve().parents[1] / "eval" / "results"
 DISRUPTION = {"open second exit door": 0, "meter both gates to 150/min": 1, "meter gate A to 60/min": 1, "hold both gates": 2}
 
 
+def choose(peak: dict[str, float]) -> str:
+    """The planner's rule: the least disruptive action within 0.25/m2 of the lowest peak."""
+    lowest = min(peak.values())
+    return min((n for n in peak if peak[n] <= lowest + 0.25), key=lambda n: (DISRUPTION[n], peak[n]))
+
+
 def main() -> None:
     d = json.loads((RES / "test_b_twin.json").read_text())
     seeds = {k: v["actions"] for k, v in d["seeds"].items() if v["actions"]}
@@ -26,8 +32,8 @@ def main() -> None:
         others = [a for k, a in seeds.items() if k != s]
         err = {n: max(0.0, float(np.mean([o[n]["simulated_peak"] - o[n]["predicted_peak"] for o in others]))) for n in DISRUPTION}
         best = min(acts[n]["simulated_peak"] for n in DISRUPTION)
-        plain = min(DISRUPTION, key=lambda n: (round(acts[n]["predicted_peak"] / 0.25), DISRUPTION[n]))
-        priced = min(DISRUPTION, key=lambda n: (round((acts[n]["predicted_peak"] + err[n]) / 0.25), DISRUPTION[n]))
+        plain = choose({n: acts[n]["predicted_peak"] for n in DISRUPTION})
+        priced = choose({n: acts[n]["predicted_peak"] + err[n] for n in DISRUPTION})
         rows.append({"seed": s, "chosen_plain": plain, "regret_plain": round(acts[plain]["simulated_peak"] - best, 2),
                      "chosen_with_error": priced, "regret_with_error": round(acts[priced]["simulated_peak"] - best, 2)})
         print(rows[-1])

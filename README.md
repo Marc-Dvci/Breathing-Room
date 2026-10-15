@@ -37,7 +37,7 @@ Breathing Room adds both, and measures them on real data:
 | The proposal picks an action that works | with each action's measured forecast error priced in, mean regret **0.01 people/m²** (out of sample), against 1.85 without | [eval/score_test_b.py](eval/score_test_b.py) |
 | A knocked camera is caught before its numbers are used | **36 of 36** knocks above 0.25 m flagged, **0** false alarms in 60 checks, floor shift measured to 2 mm (median) | [eval/test_e_drift.py](eval/test_e_drift.py) |
 | Counting holds on real oblique street CCTV | DM-Count QNRF on the OpenCV 5 DNN engine: **10.9%** mean error, r = 0.985 on 100 CroHD frames with 45 to 250 people | [eval/test_d_counting.py](eval/test_d_counting.py) |
-| The agent makes the right kind of decision | **AGENT_RESULT** | [eval/test_c_agent.py](eval/test_c_agent.py) |
+| The agent makes the right kind of decision | **17 of 17** episodes with gpt-oss-120b on Amazon Bedrock: a proposal for a filling zone (5/5, all "meter both gates", the action test B shows works) and for pushing at the entrance (5/5), a recalibration request for a knocked camera (5/5), the deterministic planner when the model endpoint is down (2/2); median 6 tool calls, 14 s | [eval/test_c_agent.py](eval/test_c_agent.py) |
 | Exit capacity comes from real bottleneck data | flow = **2.02 × width** (R² 0.81) over 24 Jülich runs; the system plans with 1.3 people/m/s, below all 24 | [eval/test_b_capacity.py](eval/test_b_capacity.py) |
 
 ## How it works

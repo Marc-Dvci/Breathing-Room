@@ -29,6 +29,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+os.environ.setdefault("BR_ISOLATE_MODELS", "1")  # each repeat builds a camera zone: keep the models out of this process
 from breathingroom import agent as ag  # noqa: E402
 from breathingroom.policy import Tier  # noqa: E402
 from breathingroom.runtime import CATALOGUE, CameraZone, Runtime  # noqa: E402
@@ -108,6 +109,7 @@ def run(name: str, make, expect: str, repeats: int, trace: Trace, model_down: bo
 
 
 def main() -> None:
+    (OUT / "test_c_agent_trace.jsonl").unlink(missing_ok=True)
     ap = argparse.ArgumentParser()
     ap.add_argument("--repeats", type=int, default=5)
     args = ap.parse_args()

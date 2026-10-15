@@ -7,13 +7,13 @@
     "model"
    ],
    "finished": 5,
-   "correct_decision": 4,
+   "correct_decision": 5,
    "checked_camera_first": 5,
-   "proposals_citing_own_forecast": 4,
-   "proposals_lowest_peak": 4,
+   "proposals_citing_own_forecast": 5,
+   "proposals_lowest_peak": 5,
    "refused_calls_total": 0,
    "median_steps": 6.0,
-   "median_seconds": 15.2,
+   "median_seconds": 13.5,
    "actions": [
     "meter_entry:both gates"
    ]
@@ -29,8 +29,8 @@
    "proposals_citing_own_forecast": 0,
    "proposals_lowest_peak": 0,
    "refused_calls_total": 0,
-   "median_steps": 2.0,
-   "median_seconds": 3.5,
+   "median_steps": 3.0,
+   "median_seconds": 5.8,
    "actions": []
   },
   "e1_pushing": {
@@ -39,13 +39,13 @@
     "model"
    ],
    "finished": 5,
-   "correct_decision": 4,
+   "correct_decision": 5,
    "checked_camera_first": 5,
-   "proposals_citing_own_forecast": 4,
-   "proposals_lowest_peak": 4,
-   "refused_calls_total": 1,
+   "proposals_citing_own_forecast": 5,
+   "proposals_lowest_peak": 5,
+   "refused_calls_total": 0,
    "median_steps": 6.0,
-   "median_seconds": 14.8,
+   "median_seconds": 16.8,
    "actions": [
     "announce:please stop pushing, the gate is open"
    ]
@@ -62,9 +62,9 @@
    "proposals_lowest_peak": 2,
    "refused_calls_total": 0,
    "median_steps": 10.0,
-   "median_seconds": 4.7,
+   "median_seconds": 4.6,
    "actions": [
-    "hold_entry:both gates"
+    "meter_entry:both gates"
    ]
   }
  },
@@ -72,7 +72,59 @@
   {
    "scenario": "twin_filling",
    "repeat": 0,
-   "seconds": 12.8,
+   "seconds": 16.8,
+   "planner": "model",
+   "steps": 7,
+   "refused_calls": 0,
+   "tools": [
+    "get_zone_state",
+    "check_camera",
+    "cross_check_count",
+    "forecast_action",
+    "forecast_action",
+    "forecast_action",
+    "propose_action"
+   ],
+   "decision": "proposal",
+   "finished": true,
+   "correct_decision": true,
+   "checked_camera_first": true,
+   "cites_own_forecast": true,
+   "chose_lowest_peak": true,
+   "action": "meter_entry:both gates",
+   "radio": "Zone C Station Road density 0.5, 9.1 minutes left, meter entry both gates to 150 per minute.",
+   "compared": 3
+  },
+  {
+   "scenario": "twin_filling",
+   "repeat": 1,
+   "seconds": 17.3,
+   "planner": "model",
+   "steps": 7,
+   "refused_calls": 0,
+   "tools": [
+    "get_zone_state",
+    "check_camera",
+    "cross_check_count",
+    "forecast_action",
+    "forecast_action",
+    "forecast_action",
+    "propose_action"
+   ],
+   "decision": "proposal",
+   "finished": true,
+   "correct_decision": true,
+   "checked_camera_first": true,
+   "cites_own_forecast": true,
+   "chose_lowest_peak": true,
+   "action": "meter_entry:both gates",
+   "radio": "Zone C - Station Road, density 0.5, about 9 minutes left, meter both entry gates to 150 people per minute.",
+   "compared": 3
+  },
+  {
+   "scenario": "twin_filling",
+   "repeat": 2,
+   "seconds": 9.4,
    "planner": "model",
    "steps": 6,
    "refused_calls": 0,
@@ -91,12 +143,248 @@
    "cites_own_forecast": true,
    "chose_lowest_peak": true,
    "action": "meter_entry:both gates",
-   "radio": "Zone C - Station Road density 0.5; not filling; meter entry at both gates to 150 per minute.",
+   "radio": "Zone C - Station Road: density 0.5, about 9 minutes to threshold. Meter entry at both gates to 150 per minute.",
    "compared": 2
   },
   {
    "scenario": "twin_filling",
+   "repeat": 3,
+   "seconds": 13.5,
+   "planner": "model",
+   "steps": 6,
+   "refused_calls": 0,
+   "tools": [
+    "get_zone_state",
+    "check_camera",
+    "cross_check_count",
+    "forecast_action",
+    "forecast_action",
+    "propose_action"
+   ],
+   "decision": "proposal",
+   "finished": true,
+   "correct_decision": true,
+   "checked_camera_first": true,
+   "cites_own_forecast": true,
+   "chose_lowest_peak": true,
+   "action": "meter_entry:both gates",
+   "radio": "Zone C - Station Road: density 0.5, about 9 minutes to reaching 4.5. Meter entry at both gates to 150 people per minute.",
+   "compared": 2
+  },
+  {
+   "scenario": "twin_filling",
+   "repeat": 4,
+   "seconds": 11.4,
+   "planner": "model",
+   "steps": 6,
+   "refused_calls": 0,
+   "tools": [
+    "get_zone_state",
+    "check_camera",
+    "cross_check_count",
+    "forecast_action",
+    "forecast_action",
+    "propose_action"
+   ],
+   "decision": "proposal",
+   "finished": true,
+   "correct_decision": true,
+   "checked_camera_first": true,
+   "cites_own_forecast": true,
+   "chose_lowest_peak": true,
+   "action": "meter_entry:both gates",
+   "radio": "Zone C - Station Road, density 0.5, about 9 minutes to threshold, meter entry both gates to 150 per minute.",
+   "compared": 2
+  },
+  {
+   "scenario": "camera_knocked",
+   "repeat": 0,
+   "seconds": 5.8,
+   "planner": "model",
+   "steps": 3,
+   "refused_calls": 0,
+   "tools": [
+    "get_zone_state",
+    "check_camera",
+    "request_recalibration"
+   ],
+   "decision": "recalibration",
+   "finished": true,
+   "correct_decision": true,
+   "checked_camera_first": true
+  },
+  {
+   "scenario": "camera_knocked",
    "repeat": 1,
+   "seconds": 5.2,
+   "planner": "model",
+   "steps": 3,
+   "refused_calls": 0,
+   "tools": [
+    "get_zone_state",
+    "check_camera",
+    "request_recalibration"
+   ],
+   "decision": "recalibration",
+   "finished": true,
+   "correct_decision": true,
+   "checked_camera_first": true
+  },
+  {
+   "scenario": "camera_knocked",
+   "repeat": 2,
+   "seconds": 7.3,
+   "planner": "model",
+   "steps": 3,
+   "refused_calls": 0,
+   "tools": [
+    "get_zone_state",
+    "check_camera",
+    "request_recalibration"
+   ],
+   "decision": "recalibration",
+   "finished": true,
+   "correct_decision": true,
+   "checked_camera_first": true
+  },
+  {
+   "scenario": "camera_knocked",
+   "repeat": 3,
+   "seconds": 6.3,
+   "planner": "model",
+   "steps": 3,
+   "refused_calls": 0,
+   "tools": [
+    "get_zone_state",
+    "check_camera",
+    "request_recalibration"
+   ],
+   "decision": "recalibration",
+   "finished": true,
+   "correct_decision": true,
+   "checked_camera_first": true
+  },
+  {
+   "scenario": "camera_knocked",
+   "repeat": 4,
+   "seconds": 5.7,
+   "planner": "model",
+   "steps": 3,
+   "refused_calls": 0,
+   "tools": [
+    "get_zone_state",
+    "check_camera",
+    "request_recalibration"
+   ],
+   "decision": "recalibration",
+   "finished": true,
+   "correct_decision": true,
+   "checked_camera_first": true
+  },
+  {
+   "scenario": "e1_pushing",
+   "repeat": 0,
+   "seconds": 16.7,
+   "planner": "model",
+   "steps": 6,
+   "refused_calls": 0,
+   "tools": [
+    "get_zone_state",
+    "check_camera",
+    "cross_check_count",
+    "forecast_action",
+    "forecast_action",
+    "propose_action"
+   ],
+   "decision": "proposal",
+   "finished": true,
+   "correct_decision": true,
+   "checked_camera_first": true,
+   "cites_own_forecast": true,
+   "chose_lowest_peak": true,
+   "action": "announce:please stop pushing, the gate is open",
+   "radio": "Entrance E1 density 1.43. Pushing detected. Zone not filling. Announce: please stop pushing, the gate is open.",
+   "compared": 2
+  },
+  {
+   "scenario": "e1_pushing",
+   "repeat": 1,
+   "seconds": 16.8,
+   "planner": "model",
+   "steps": 7,
+   "refused_calls": 0,
+   "tools": [
+    "get_zone_state",
+    "check_camera",
+    "cross_check_count",
+    "forecast_action",
+    "forecast_action",
+    "forecast_action",
+    "propose_action"
+   ],
+   "decision": "proposal",
+   "finished": true,
+   "correct_decision": true,
+   "checked_camera_first": true,
+   "cites_own_forecast": true,
+   "chose_lowest_peak": true,
+   "action": "announce:please stop pushing, the gate is open",
+   "radio": "Entrance E1, density 1.43, zone not filling, pushing detected \u2013 announce: please stop pushing, the gate is open.",
+   "compared": 3
+  },
+  {
+   "scenario": "e1_pushing",
+   "repeat": 2,
+   "seconds": 21.4,
+   "planner": "model",
+   "steps": 6,
+   "refused_calls": 0,
+   "tools": [
+    "get_zone_state",
+    "check_camera",
+    "forecast_action",
+    "cross_check_count",
+    "forecast_action",
+    "propose_action"
+   ],
+   "decision": "proposal",
+   "finished": true,
+   "correct_decision": true,
+   "checked_camera_first": true,
+   "cites_own_forecast": true,
+   "chose_lowest_peak": true,
+   "action": "announce:please stop pushing, the gate is open",
+   "radio": "Entrance E1 density 1.43, pushing detected. The zone is not filling. Announce: please stop pushing, the gate is open.",
+   "compared": 2
+  },
+  {
+   "scenario": "e1_pushing",
+   "repeat": 3,
+   "seconds": 16.7,
+   "planner": "model",
+   "steps": 6,
+   "refused_calls": 0,
+   "tools": [
+    "get_zone_state",
+    "check_camera",
+    "cross_check_count",
+    "forecast_action",
+    "forecast_action",
+    "propose_action"
+   ],
+   "decision": "proposal",
+   "finished": true,
+   "correct_decision": true,
+   "checked_camera_first": true,
+   "cites_own_forecast": true,
+   "chose_lowest_peak": true,
+   "action": "announce:please stop pushing, the gate is open",
+   "radio": "Entrance E1 density 1.43, zone not filling. Pushing detected. Please stop pushing, the gate is open.",
+   "compared": 2
+  },
+  {
+   "scenario": "e1_pushing",
+   "repeat": 4,
    "seconds": 19.0,
    "planner": "model",
    "steps": 6,
@@ -115,283 +403,14 @@
    "checked_camera_first": true,
    "cites_own_forecast": true,
    "chose_lowest_peak": true,
-   "action": "meter_entry:both gates",
-   "radio": "Zone C \u2013 Station Road, density 0.5, not filling, meter both gates to 150 per minute.",
-   "compared": 2
-  },
-  {
-   "scenario": "twin_filling",
-   "repeat": 2,
-   "seconds": 15.1,
-   "planner": "model",
-   "steps": 7,
-   "refused_calls": 0,
-   "tools": [
-    "get_zone_state",
-    "check_camera",
-    "cross_check_count",
-    "forecast_action",
-    "forecast_action",
-    "forecast_action",
-    "propose_action"
-   ],
-   "decision": "proposal",
-   "finished": true,
-   "correct_decision": true,
-   "checked_camera_first": true,
-   "cites_own_forecast": true,
-   "chose_lowest_peak": true,
-   "action": "meter_entry:both gates",
-   "radio": "Zone C Station Road, density 0.5, not filling, meter both gates to 150 per minute.",
-   "compared": 3
-  },
-  {
-   "scenario": "twin_filling",
-   "repeat": 3,
-   "seconds": 18.6,
-   "planner": "model",
-   "steps": 6,
-   "refused_calls": 0,
-   "tools": [
-    "check_camera",
-    "cross_check_count",
-    "get_zone_state",
-    "forecast_action",
-    "forecast_action",
-    "no_action"
-   ],
-   "decision": "no_action",
-   "finished": true,
-   "correct_decision": false,
-   "checked_camera_first": true
-  },
-  {
-   "scenario": "twin_filling",
-   "repeat": 4,
-   "seconds": 15.2,
-   "planner": "model",
-   "steps": 7,
-   "refused_calls": 0,
-   "tools": [
-    "get_zone_state",
-    "check_camera",
-    "forecast_action",
-    "cross_check_count",
-    "forecast_action",
-    "forecast_action",
-    "propose_action"
-   ],
-   "decision": "proposal",
-   "finished": true,
-   "correct_decision": true,
-   "checked_camera_first": true,
-   "cites_own_forecast": true,
-   "chose_lowest_peak": true,
-   "action": "meter_entry:both gates",
-   "radio": "Zone C - Station Road density 0.5, not filling. Meter both gates to 150 people per minute.",
-   "compared": 3
-  },
-  {
-   "scenario": "camera_knocked",
-   "repeat": 0,
-   "seconds": 3.4,
-   "planner": "model",
-   "steps": 2,
-   "refused_calls": 0,
-   "tools": [
-    "check_camera",
-    "request_recalibration"
-   ],
-   "decision": "recalibration",
-   "finished": true,
-   "correct_decision": true,
-   "checked_camera_first": true
-  },
-  {
-   "scenario": "camera_knocked",
-   "repeat": 1,
-   "seconds": 3.1,
-   "planner": "model",
-   "steps": 2,
-   "refused_calls": 0,
-   "tools": [
-    "check_camera",
-    "request_recalibration"
-   ],
-   "decision": "recalibration",
-   "finished": true,
-   "correct_decision": true,
-   "checked_camera_first": true
-  },
-  {
-   "scenario": "camera_knocked",
-   "repeat": 2,
-   "seconds": 3.7,
-   "planner": "model",
-   "steps": 2,
-   "refused_calls": 0,
-   "tools": [
-    "check_camera",
-    "request_recalibration"
-   ],
-   "decision": "recalibration",
-   "finished": true,
-   "correct_decision": true,
-   "checked_camera_first": true
-  },
-  {
-   "scenario": "camera_knocked",
-   "repeat": 3,
-   "seconds": 3.8,
-   "planner": "model",
-   "steps": 2,
-   "refused_calls": 0,
-   "tools": [
-    "check_camera",
-    "request_recalibration"
-   ],
-   "decision": "recalibration",
-   "finished": true,
-   "correct_decision": true,
-   "checked_camera_first": true
-  },
-  {
-   "scenario": "camera_knocked",
-   "repeat": 4,
-   "seconds": 3.5,
-   "planner": "model",
-   "steps": 2,
-   "refused_calls": 0,
-   "tools": [
-    "check_camera",
-    "request_recalibration"
-   ],
-   "decision": "recalibration",
-   "finished": true,
-   "correct_decision": true,
-   "checked_camera_first": true
-  },
-  {
-   "scenario": "e1_pushing",
-   "repeat": 0,
-   "seconds": 17.3,
-   "planner": "model",
-   "steps": 6,
-   "refused_calls": 0,
-   "tools": [
-    "get_zone_state",
-    "check_camera",
-    "cross_check_count",
-    "forecast_action",
-    "forecast_action",
-    "propose_action"
-   ],
-   "decision": "proposal",
-   "finished": true,
-   "correct_decision": true,
-   "checked_camera_first": true,
-   "cites_own_forecast": true,
-   "chose_lowest_peak": true,
    "action": "announce:please stop pushing, the gate is open",
-   "radio": "Entrance E1 density 1.43, pushing detected, zone not filling; please announce: stop pushing, the gate is open.",
+   "radio": "Entrance E1, density 1.43, no filling expected, announce: please stop pushing, the gate is open.",
    "compared": 2
-  },
-  {
-   "scenario": "e1_pushing",
-   "repeat": 1,
-   "seconds": 14.8,
-   "planner": "model",
-   "steps": 6,
-   "refused_calls": 0,
-   "tools": [
-    "get_zone_state",
-    "check_camera",
-    "forecast_action",
-    "forecast_action",
-    "cross_check_count",
-    "propose_action"
-   ],
-   "decision": "proposal",
-   "finished": true,
-   "correct_decision": true,
-   "checked_camera_first": true,
-   "cites_own_forecast": true,
-   "chose_lowest_peak": true,
-   "action": "announce:please stop pushing, the gate is open",
-   "radio": "Entrance E1: density 1.43, not filling, pushing detected. Please stop pushing, the gate is open.",
-   "compared": 2
-  },
-  {
-   "scenario": "e1_pushing",
-   "repeat": 2,
-   "seconds": 12.3,
-   "planner": "model",
-   "steps": 6,
-   "refused_calls": 0,
-   "tools": [
-    "check_camera",
-    "cross_check_count",
-    "get_zone_state",
-    "forecast_action",
-    "forecast_action",
-    "propose_action"
-   ],
-   "decision": "proposal",
-   "finished": true,
-   "correct_decision": true,
-   "checked_camera_first": true,
-   "cites_own_forecast": true,
-   "chose_lowest_peak": true,
-   "action": "announce:please stop pushing, the gate is open",
-   "radio": "Entrance E1 density 1.43, pushing detected, zone not filling. Please stop pushing, the gate is open.",
-   "compared": 2
-  },
-  {
-   "scenario": "e1_pushing",
-   "repeat": 3,
-   "seconds": 15.9,
-   "planner": "model",
-   "steps": 6,
-   "refused_calls": 0,
-   "tools": [
-    "get_zone_state",
-    "check_camera",
-    "cross_check_count",
-    "forecast_action",
-    "forecast_action",
-    "propose_action"
-   ],
-   "decision": "proposal",
-   "finished": true,
-   "correct_decision": true,
-   "checked_camera_first": true,
-   "cites_own_forecast": true,
-   "chose_lowest_peak": true,
-   "action": "announce:please stop pushing, the gate is open",
-   "radio": "Entrance E1 \u2013 density 1.43 people per square metre, not filling. Please stop pushing, the gate is open.",
-   "compared": 2
-  },
-  {
-   "scenario": "e1_pushing",
-   "repeat": 4,
-   "seconds": 6.2,
-   "planner": "model",
-   "steps": 3,
-   "refused_calls": 1,
-   "tools": [
-    "get_zone_state",
-    "check_camera",
-    "request_recalibration"
-   ],
-   "decision": "recalibration",
-   "finished": true,
-   "correct_decision": false,
-   "checked_camera_first": true
   },
   {
    "scenario": "model_down",
    "repeat": 0,
-   "seconds": 4.9,
+   "seconds": 4.6,
    "planner": "deterministic",
    "steps": 10,
    "refused_calls": 0,
@@ -413,14 +432,14 @@
    "checked_camera_first": true,
    "cites_own_forecast": true,
    "chose_lowest_peak": true,
-   "action": "hold_entry:both gates",
-   "radio": "Zone C - Station Road: 0.5 per square metre and rising. Proposed: hold both gates.",
+   "action": "meter_entry:both gates",
+   "radio": "Zone C - Station Road: 0.5 per square metre and rising. Proposed: meter both gates to 150 people/min.",
    "compared": 5
   },
   {
    "scenario": "model_down",
    "repeat": 1,
-   "seconds": 4.5,
+   "seconds": 4.6,
    "planner": "deterministic",
    "steps": 10,
    "refused_calls": 0,
@@ -442,8 +461,8 @@
    "checked_camera_first": true,
    "cites_own_forecast": true,
    "chose_lowest_peak": true,
-   "action": "hold_entry:both gates",
-   "radio": "Zone C - Station Road: 0.5 per square metre and rising. Proposed: hold both gates.",
+   "action": "meter_entry:both gates",
+   "radio": "Zone C - Station Road: 0.5 per square metre and rising. Proposed: meter both gates to 150 people/min.",
    "compared": 5
   }
  ]

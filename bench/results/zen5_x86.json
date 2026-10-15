@@ -1,0 +1,88 @@
+{
+  "label": "zen5-x86-local",
+  "opencv_version": "5.0.0",
+  "build_head": [
+    "",
+    "General configuration for OpenCV 5.0.0 =====================================",
+    "  Version control:               5.0.0",
+    "",
+    "  Extra modules:",
+    "    Location (extra):            D:/a/opencv-python/opencv-python/opencv_contrib/modules",
+    "    Version control (extra):     5.0.0",
+    "",
+    "  Platform:",
+    "    Timestamp:                   2026-07-01T09:08:01Z",
+    "    Host:                        Windows 10.0.20348 AMD64",
+    "    CMake:                       4.3.2"
+  ],
+  "threads": 12,
+  "cpu": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+  "machine": "AMD64",
+  "instance_type": null,
+  "ami_id": null,
+  "stages": {
+    "remap_undistort_1920x1440": {
+      "median_ms": 2.8308500004641246,
+      "p90_ms": 3.08532999624731,
+      "n": 20
+    },
+    "cvtColor_bgr2gray_1920x1440": {
+      "median_ms": 0.4322500026319176,
+      "p90_ms": 0.4748999992443715,
+      "n": 20
+    },
+    "resize_area_to_960": {
+      "median_ms": 0.4061999970872421,
+      "p90_ms": 0.42620999956852756,
+      "n": 20
+    },
+    "cvtColor_bgr2hsv_1920x1440": {
+      "median_ms": 1.0037999963969924,
+      "p90_ms": 1.2009900012344588,
+      "n": 20
+    },
+    "head_detection_hsv_morph_components": {
+      "median_ms": 7.329150001169182,
+      "p90_ms": 7.624679996661143,
+      "n": 20
+    },
+    "dis_flow_medium_960x720": {
+      "median_ms": 16.014750002796063,
+      "p90_ms": 16.52789999934612,
+      "n": 20
+    },
+    "warpPerspective_overlay_960x720": {
+      "median_ms": 0.16190000314963982,
+      "p90_ms": 0.20316000227467157,
+      "n": 20
+    },
+    "gaussianBlur_fields_100x100": {
+      "median_ms": 0.05545000021811575,
+      "p90_ms": 0.06704000115860254,
+      "n": 20
+    },
+    "jpeg_encode_960x720": {
+      "median_ms": 1.5920500009087846,
+      "p90_ms": 1.8747300004179124,
+      "n": 20
+    },
+    "dmcount_sha_dnn_new_960x720": {
+      "median_ms": 854.1177999941283,
+      "p90_ms": 913.0486200010637,
+      "n": 5
+    },
+    "drift_check_aliked_lightglue_640": {
+      "median_ms": 692.2543999971822,
+      "p90_ms": 715.1425599993672,
+      "n": 5
+    }
+  },
+  "camera_second_ms": {
+    "console": 155.2,
+    "with_dmcount_every_5s": 326.0
+  },
+  "cameras_realtime": {
+    "console": 6.44,
+    "with_dmcount_every_5s": 3.07
+  }
+}

@@ -87,9 +87,10 @@ Rules:
    action; their forecast equals the no-action forecast, and you say so.
 4. propose_action must cite the forecast_id of the forecast that supports it.
 5. The radio message is at most 30 words, plain English, and names the zone, the density,
-   the minutes left, and the action. No jargon. When minutes_to_threshold is null the zone
-   is not filling: say so, and never write "0 minutes". When the pushing index is at or
-   above the alert threshold, say that pushing is detected.
+   the minutes left, and the action. No jargon. The minutes left are minutes_to_4_5 from
+   get_zone_state, the zone as it is now; never take them from an action's forecast. When
+   minutes_to_4_5 is null the zone is not filling: say so, and never write "0 minutes". When
+   the pushing index is at or above the alert threshold, say that pushing is detected.
 6. You never approve anything yourself. A steward decides."""
 
 
@@ -335,12 +336,14 @@ def run_deterministic(ep: Episode) -> Episode:
     if not results:
         ep.call("no_action", {"reason": "no action available"})
         return ep
-    results.sort(key=lambda r: (round(r[0] / 0.25), r[1]))  # peaks within 0.25/m2 tie: least disruption wins
+    # the least disruptive action whose peak (with its measured error) is within 0.25/m2 of the lowest
+    lowest = min(r[0] for r in results)
+    results.sort(key=lambda r: (r[1], r[0]) if r[0] <= lowest + 0.25 else (99, r[0]))
     best = results[0][2]
-    mins = best["minutes_to_threshold"]
+    mins = state.get("minutes_to_4_5")  # the zone as it is now, not under the action
     rho = state.get("density", best["density_now"])
-    radio = (f"{ep.zone}: {rho:.1f} per square metre and rising"
-             + (f", about {mins:.0f} minutes to critical" if mins is not None else "")
+    radio = (f"{ep.zone}: {rho:.1f} per square metre"
+             + (f", about {mins:.0f} minutes to 4.5" if mins is not None else ", not filling")
              + f". Proposed: {best['action']}.")
     ep.call("propose_action", {"zone": ep.zone, "forecast_id": best["forecast_id"], "radio_message": radio,
                                "rationale": f"lowest predicted peak with its measured forecast error ({results[0][0]}/m2) "
