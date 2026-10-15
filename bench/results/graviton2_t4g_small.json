@@ -1,0 +1,74 @@
+{
+  "label": "graviton2-t4g.small",
+  "opencv_version": "5.0.0",
+  "threads": 2,
+  "cpu": "aarch64",
+  "machine": "aarch64",
+  "instance_type": "t4g.small",
+  "ami_id": "ami-0b2dad606b16e669c",
+  "stages": {
+    "remap_undistort_1920x1440": {
+      "median_ms": 23.009675500134108,
+      "p90_ms": 23.125907499888854,
+      "n": 20
+    },
+    "cvtColor_bgr2gray_1920x1440": {
+      "median_ms": 0.8111049999115494,
+      "p90_ms": 0.8271163999779674,
+      "n": 20
+    },
+    "resize_area_to_960": {
+      "median_ms": 0.6727209997734462,
+      "p90_ms": 0.7561977999557712,
+      "n": 20
+    },
+    "cvtColor_bgr2hsv_1920x1440": {
+      "median_ms": 4.069453500051168,
+      "p90_ms": 4.0908161000515975,
+      "n": 20
+    },
+    "head_detection_hsv_morph_components": {
+      "median_ms": 22.143536499925176,
+      "p90_ms": 22.958654300100534,
+      "n": 20
+    },
+    "dis_flow_medium_960x720": {
+      "median_ms": 70.66392799993082,
+      "p90_ms": 71.17672459980895,
+      "n": 20
+    },
+    "warpPerspective_overlay_960x720": {
+      "median_ms": 1.642856499984191,
+      "p90_ms": 1.6489740001816244,
+      "n": 20
+    },
+    "gaussianBlur_fields_100x100": {
+      "median_ms": 0.11282550008218095,
+      "p90_ms": 0.11372540038792067,
+      "n": 20
+    },
+    "jpeg_encode_960x720": {
+      "median_ms": 5.687392000027103,
+      "p90_ms": 5.712886400033312,
+      "n": 20
+    },
+    "dmcount_sha_dnn_new_960x720": {
+      "median_ms": 16242.124280000098,
+      "p90_ms": 16331.384496800001,
+      "n": 5
+    },
+    "drift_check_aliked_lightglue_640": {
+      "median_ms": 3127.673808000054,
+      "p90_ms": 3169.789753399982,
+      "n": 5
+    }
+  },
+  "camera_second_ms": {
+    "console": 716.3,
+    "with_dmcount_every_5s": 3964.7
+  },
+  "cameras_realtime": {
+    "console": 1.4,
+    "with_dmcount_every_5s": 0.25
+  }
+}

@@ -70,3 +70,20 @@ def test_radio_numbers_must_come_from_tools(tmp_path):
     good = ep.call("propose_action", {"zone": "Zone C", "forecast_id": ok["forecast_id"],
                                       "radio_message": "Zone C at 3.8 per square metre. Open the side passage.", "rationale": "r"})
     assert good.get("ok")
+
+
+def test_approval_forecasts_the_action_again_and_applies_it(tmp_path):
+    from breathingroom.agent import Episode as Ep
+    from breathingroom.runtime import CATALOGUE, Runtime
+
+    rt = Runtime(tmp_path / "t.jsonl", use_model=False, camera=None, seed=1, twin_warmup_s=120)
+    zone = rt.twin.name
+    ep = run_deterministic(Ep(zone, Tier.WARN, ["test"], rt.tools_for(zone), CATALOGUE, rt.trace, clock=lambda: rt.twin.state.t))
+    rt.proposals[ep.proposal.id] = ep.proposal
+    for _ in range(20):  # the zone moves on before the steward decides
+        rt.twin.tick(1.0)
+    out = rt.decide(ep.proposal.id, approve=True)
+    p = rt.proposals[ep.proposal.id]
+    assert out["ok"] and out["applied"]
+    assert p.predicted["at_approval"] and p.predicted_at_proposal["peak_density"] is not None
+    assert p.verify["start_t"] == rt.twin.state.t

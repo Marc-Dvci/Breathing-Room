@@ -69,7 +69,9 @@ function renderPlan(fp) {
   g.fillStyle = "#5b6472"; g.font = "12px Inter, Segoe UI, sans-serif";
   g.fillText("Zone C", X(15.3), Y(5.55));
   g.fillText("exit 2.4 m", X(30.2), Y(1.8) + 14);
-  g.fillText(fp.side_open ? "door 2 OPEN" : "door 2 (closed)", X(30.2), Y(6.0) - 4);
+  g.textAlign = "right";
+  g.fillText(fp.side_open ? "door 2 OPEN" : "door 2 (closed)", W - 4, Y(6.0) - 4);
+  g.textAlign = "left";
   for (const [name, r] of Object.entries(o.gates)) {
     g.fillStyle = "#14181f"; g.fillRect(X(0) - 4, Y(r[3]), 4, (r[3] - r[1]) * s);
     const meter = fp.meters[name];
@@ -106,7 +108,7 @@ function renderChart(zone, proposals) {
   });
   g.strokeStyle = "#9aa3ae"; g.beginPath(); g.moveTo(X(tNow), T); g.lineTo(X(tNow), H - B); g.stroke();
   g.fillStyle = "#5b6472"; g.fillText("now", X(tNow) + 4, T + 10);
-  for (let m = Math.ceil(t0 / 120) * 120; m <= t1; m += 120) g.fillText(fmtClock(m), X(m) - 12, H - 8);
+  for (let m = Math.ceil(t0 / 120) * 120; m <= t1; m += 120) if (X(m) < W - R - 18) g.fillText(fmtClock(m), X(m) - 12, H - 8);
   g.strokeStyle = "#14181f"; g.lineWidth = 2; g.beginPath();
   let started = false;
   for (let i = 0; i < ht.length; i++) { if (ht[i] < t0) continue; const x = X(ht[i]), y = Y(hr[i]); started ? g.lineTo(x, y) : (g.moveTo(x, y), (started = true)); }
@@ -142,7 +144,7 @@ function proposalCard(p) {
     <div class="kicker"><span>${esc(p.zone)} · ${esc(p.tier)}</span><span>${p.planner === "model" ? "gpt-oss-120b" : "deterministic planner"}</span></div>
     <div class="radio">“${esc(p.radio)}”</div>
     <div class="effect">
-      <div><div class="v">${p.predicted.peak_density.toFixed(1)}</div><div class="l">predicted peak in 10 min, people/m², with this action</div></div>
+      <div><div class="v">${p.predicted.peak_density.toFixed(1)}</div><div class="l">predicted peak in 10 min, people/m², with this action${p.predicted.at_approval ? " (forecast again at approval)" : ""}</div></div>
       <div><div class="v">${none ? none.peak.toFixed(1) : "–"}</div><div class="l">without action</div></div>
     </div>
     <table><thead><tr><th>Action compared</th><th title="predicted peak density in 10 minutes, people/m²">Peak</th><th title="how far the twin's peak exceeded this forecast, on average, in testing">Tested error</th><th>Min to 4.5</th></tr></thead><tbody>

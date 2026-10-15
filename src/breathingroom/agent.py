@@ -53,6 +53,7 @@ class Proposal:
     decided_by: str = ""
     verify: dict = field(default_factory=dict)
     replay: bool = False  # the zone is a recording: approving records the decision only
+    predicted_at_proposal: dict = field(default_factory=dict)  # set when approval re-forecasts
 
     def to_json(self) -> dict:
         return asdict(self)

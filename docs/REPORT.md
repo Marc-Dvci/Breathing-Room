@@ -239,7 +239,27 @@ below it, and measured the floor shift to 2 mm (median; 4 mm at the 90th percent
 
 Per-stage medians, same frames, pip `opencv-contrib-python(-headless)` 5.0.0.93:
 
-GRAVITON_TABLE
+| Stage | AWS Graviton 2 (t4g.small, 2 vCPU) | AMD Zen 5 desktop (6 cores) |
+|---|---|---|
+| lens undistortion (`remap`, 1920×1440) | 23.0 ms | 2.8 ms |
+| `cvtColor` to grey | 0.8 ms | 0.4 ms |
+| `resize` (area) to 960 | 0.7 ms | 0.4 ms |
+| head detection (HSV, morphology, components) | 22.1 ms | 7.3 ms |
+| DIS optical flow (medium, 960×720) | 70.7 ms | 16.0 ms |
+| overlay `warpPerspective` | 1.6 ms | 0.2 ms |
+| `GaussianBlur` on the field grid | 0.1 ms | 0.1 ms |
+| `imencode` JPEG | 5.7 ms | 1.6 ms |
+| DM-Count, DNN `ENGINE_NEW`, 960×720 | 16,242.1 ms | 854.1 ms |
+| drift check, ALIKED + LightGlue, 640 | 3,127.7 ms | 692.3 ms |
+| **one camera-second of the console** | **716 ms (1.4 cameras in real time)** | **155 ms (6.4 cameras)** |
+| with DM-Count every 5 s | 3,965 ms | 326 ms |
+
+The console's pipeline keeps up with one camera in real time on the smallest Graviton instance
+the account can run. The DM-Count network is about 19 times slower there than on the desktop,
+so on this instance it runs only as the occasional second counter, in its own process. A
+camera that needs DM-Count for every count needs a larger instance. Source:
+`bench/results/graviton2_t4g_small.json`, `bench/results/zen5_x86.json`, produced by
+`bench/bench_stages.py` with the console stopped.
 
 ### 6.9 The console
 

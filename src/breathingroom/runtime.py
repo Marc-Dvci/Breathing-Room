@@ -686,6 +686,18 @@ class Runtime:
             z = self.zones()[p.zone]
             result = ""
             if approve and isinstance(z, TwinZone):
+                # the zone has moved on since the proposal: forecast the approved action again from
+                # its current state, and judge the action against that forecast
+                a = p.action
+                spec = next((x for x in CATALOGUE.actions.get(p.zone, [])
+                             if x["kind"] == a["kind"] and x.get("target", "") == a.get("target", "")), {})
+                fc = z.forecast(Action(a["kind"], a.get("target", ""), rate_pps=a.get("rate_per_min", 0) / 60.0,
+                                       width_m=a.get("width_m", 0.0), share=spec.get("share", 1.0)))
+                p.predicted_at_proposal = dict(p.predicted)
+                p.predicted = {"peak_density": round(fc.peak_rho, 2), "curve_t": fc.curve_t,
+                               "curve_rho": [round(x, 3) for x in fc.curve_rho],
+                               "minutes_to_threshold": None if fc.seconds_to_threshold is None
+                               else round(fc.seconds_to_threshold / 60, 1), "at_approval": True}
                 result = z.apply(p.action)
                 p.verify = {"due_t": z.state.t + VERIFY_AFTER_S, "start_t": z.state.t, "start_rho": z.state.rho,
                             "done": False}
@@ -694,7 +706,8 @@ class Runtime:
                 p.verify = {"done": True, "outcome": "decision recorded; the recording cannot change"}
             else:
                 p.verify = {"done": True, "outcome": "rejected by the steward"}
-            self.trace.write("decision", proposal=p.id, zone=p.zone, approved=approve, by=who, applied=result)
+            self.trace.write("decision", proposal=p.id, zone=p.zone, approved=approve, by=who, applied=result,
+                             predicted_peak=p.predicted.get("peak_density"))
             return {"ok": True, "status": p.status, "applied": result}
 
     def _verify(self) -> None:
