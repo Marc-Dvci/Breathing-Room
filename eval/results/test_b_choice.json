@@ -1,0 +1,41 @@
+{
+ "rows": [
+  {
+   "seed": "0",
+   "chosen_plain": "open second exit door",
+   "regret_plain": 1.81,
+   "chosen_with_error": "meter both gates to 150/min",
+   "regret_with_error": 0.0
+  },
+  {
+   "seed": "1",
+   "chosen_plain": "open second exit door",
+   "regret_plain": 1.78,
+   "chosen_with_error": "meter both gates to 150/min",
+   "regret_with_error": 0.03
+  },
+  {
+   "seed": "2",
+   "chosen_plain": "open second exit door",
+   "regret_plain": 1.87,
+   "chosen_with_error": "meter both gates to 150/min",
+   "regret_with_error": 0.01
+  },
+  {
+   "seed": "3",
+   "chosen_plain": "open second exit door",
+   "regret_plain": 1.96,
+   "chosen_with_error": "meter both gates to 150/min",
+   "regret_with_error": 0.01
+  },
+  {
+   "seed": "4",
+   "chosen_plain": "open second exit door",
+   "regret_plain": 1.83,
+   "chosen_with_error": "meter both gates to 150/min",
+   "regret_with_error": 0.02
+  }
+ ],
+ "mean_regret_plain": 1.85,
+ "mean_regret_with_error": 0.01
+}

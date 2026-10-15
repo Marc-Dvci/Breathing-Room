@@ -78,8 +78,10 @@ Rules:
 2. Before proposing, confirm the measurement: call check_camera for the zone's camera and
    cross_check_count for the zone. If the camera is not trusted, call request_recalibration
    and do not propose a crowd action from that camera.
-3. Compare at least two actions with forecast_action, then propose the one whose predicted
-   peak density stays lowest with the least disruption. Holding an entrance is the last resort.
+3. Compare at least two actions with forecast_action, then propose the one whose
+   peak_with_error stays lowest with the least disruption. peak_with_error adds the error this
+   forecast made for that action when tested against the crowd simulation; an action with a
+   large measured error is less certain to work. Holding an entrance is the last resort.
    The forecast models crowd numbers only. When the zone is flagged for pushing and the
    density is not rising, a steward at the spot or an announcement is the proportionate
    action; their forecast equals the no-action forecast, and you say so.
@@ -185,8 +187,12 @@ class Episode:
         self.forecast_actions[fc.id] = {"kind": kind, "target": target, "rate_per_min": round(act.rate_pps * 60),
                                        "width_m": act.width_m}
         mins = None if fc.seconds_to_threshold is None else round(fc.seconds_to_threshold / 60, 1)
+        err = spec.get("forecast_error")
+        self.forecast_actions[fc.id]["forecast_error"] = err
         return {"forecast_id": fc.id, "action": fc.action, "density_now": round(fc.rho_now, 2),
                 "peak_density_10min": round(fc.peak_rho, 2), "minutes_to_threshold": mins,
+                "measured_forecast_error": err,
+                "peak_with_error": None if err is None else round(fc.peak_rho + err, 2),
                 "threshold": fc.threshold, "net_rate_per_min": round(fc.net_rate_pps * 60, 1),
                 "inflow_per_min": round(fc.inflow_pps * 60, 1), "outflow_per_min": round(fc.outflow_pps * 60, 1)}
 
@@ -208,6 +214,8 @@ class Episode:
         if not any(v["kind"] == "none" for v in self.forecast_actions.values()):
             self._forecast({"zone": a.get("zone", self.zone), "kind": "none"})  # the baseline the steward compares with
         alts = [{"forecast_id": k, **self.forecast_actions[k], "peak": round(f.peak_rho, 2),
+                 "peak_with_error": None if self.forecast_actions[k].get("forecast_error") is None
+                 else round(f.peak_rho + self.forecast_actions[k]["forecast_error"], 2),
                  "minutes_to_threshold": None if f.seconds_to_threshold is None else round(f.seconds_to_threshold / 60, 1)}
                 for k, f in self.forecasts.items()]
         evidence = [c["tool"] for c in self.calls]
@@ -322,11 +330,12 @@ def run_deterministic(ep: Episode) -> Episode:
                                           "rate_per_min": a.get("rate_per_min", 60)})
         if "forecast_id" in out:
             disruption = {"send_steward": 0, "announce": 0, "open_exit": 0, "meter_entry": 1, "hold_entry": 2}.get(a["kind"], 3)
-            results.append((out["peak_density_10min"], disruption, out))
+            ranked = out["peak_with_error"] if out.get("peak_with_error") is not None else out["peak_density_10min"]
+            results.append((ranked, disruption, out))
     if not results:
         ep.call("no_action", {"reason": "no action available"})
         return ep
-    results.sort(key=lambda r: (round(r[0], 1), r[1]))
+    results.sort(key=lambda r: (round(r[0] / 0.25), r[1]))  # peaks within 0.25/m2 tie: least disruption wins
     best = results[0][2]
     mins = best["minutes_to_threshold"]
     rho = state.get("density", best["density_now"])
@@ -334,7 +343,8 @@ def run_deterministic(ep: Episode) -> Episode:
              + (f", about {mins:.0f} minutes to critical" if mins is not None else "")
              + f". Proposed: {best['action']}.")
     ep.call("propose_action", {"zone": ep.zone, "forecast_id": best["forecast_id"], "radio_message": radio,
-                               "rationale": f"lowest predicted peak ({best['peak_density_10min']}/m2) of {len(results)} actions compared"})
+                               "rationale": f"lowest predicted peak with its measured forecast error ({results[0][0]}/m2) "
+                                            f"of {len(results)} actions compared"})
     ep.trace.write("agent_end", episode=ep.id, planner="deterministic", proposal=ep.proposal.id if ep.proposal else None)
     return ep
 

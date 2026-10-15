@@ -18,6 +18,7 @@ consistent snapshot.
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 import time
@@ -45,7 +46,40 @@ TWIN_WARMUP_S = float(os.environ.get("BR_TWIN_WARMUP_S", "90"))  # skip the quie
 TWIN_CYCLE_S = float(os.environ.get("BR_TWIN_CYCLE_S", "900"))  # the evening restarts after this, when idle
 PROPOSAL_TTL_S = 240.0  # a proposal nobody decided on goes stale: the crowd has moved on
 IDLE_PAUSE_S = float(os.environ.get("BR_IDLE_PAUSE_S", "0"))  # >0: pause when no console has polled for this long
-DRIFT_EVERY_S = 15.0  # the camera watchdog matches the live frame against the calibration frame this often
+DRIFT_EVERY_S = float(os.environ.get("BR_DRIFT_EVERY_S", "15"))  # watchdog period
+# ALIKED + LightGlue need about 1.6 GB while they run and DM-Count about 0.7 GB. On a small
+# instance each call runs in a fresh child process, so the memory goes back to the system.
+ISOLATE_MODELS = os.environ.get("BR_ISOLATE_MODELS", "0") == "1"
+
+
+def _drift_job(ref, live, lens_x, H_u2w, probe) -> dict:
+    """Child-process drift check (BR_ISOLATE_MODELS=1)."""
+    from .datasets.fzj_camera import Lens
+    from .drift import DriftWatch
+
+    lens = Lens(lens_x)
+
+    def to_floor(px):
+        return cv2.perspectiveTransform(lens.undistort(px).reshape(-1, 1, 2), H_u2w).reshape(-1, 2)
+
+    return DriftWatch(ref, to_floor, probe).check(live).to_json()
+
+
+def _count_job(und, mask) -> tuple[float, float]:
+    """Child-process DM-Count (BR_ISOLATE_MODELS=1)."""
+    from .density import DensityModel
+
+    r = DensityModel("sha", "new", max_side=1280)(und, roi_mask=mask)
+    return r.count, r.seconds
+
+
+def _isolated(fn, *args):
+    """Run `fn` in a fresh child process that exits afterwards."""
+    import multiprocessing as mp
+    from concurrent.futures import ProcessPoolExecutor
+
+    with ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context("spawn")) as pool:
+        return pool.submit(fn, *args).result(timeout=180)
 
 # DM-Count count / head count inside the E1 zone, over 809 frames of the six calibrated
 # Jülich runs (eval/results/test_a_meta.json): 2.5th percentile 0.27, 97.5th 0.99. DM-Count
@@ -401,14 +435,17 @@ class CameraZone:
     def check_camera(self) -> dict:
         from .drift import DriftWatch
 
+        corners = np.array([[x, y] for x in self.zone_rect[:2] for y in self.zone_rect[2:]], float)
+        probe = self.lens.distort(cv2.perspectiveTransform(corners.reshape(-1, 1, 2), self.H_w2u).reshape(-1, 2))
+        with self.frame_lock:
+            live = self.last_raw
         with self.drift_lock:
-            if self.drift is None:
-                corners = np.array([[x, y] for x in self.zone_rect[:2] for y in self.zone_rect[2:]], float)
-                probe = self.lens.distort(cv2.perspectiveTransform(corners.reshape(-1, 1, 2), self.H_w2u).reshape(-1, 2))
-                self.drift = DriftWatch(self.ref_frame, self.to_floor, probe)
-            with self.frame_lock:
-                live = self.last_raw
-            r = self.drift.check(live).to_json()
+            if ISOLATE_MODELS:
+                r = _isolated(_drift_job, self.ref_frame, live, self.lens.x, self.H_u2w, probe)
+            else:
+                if self.drift is None:
+                    self.drift = DriftWatch(self.ref_frame, self.to_floor, probe)
+                r = self.drift.check(live).to_json()
         with self.state_lock:
             self.state.trusted, self.state.trust_reason = r["trusted"], r["reason"]
             self.last_drift = {**r, "t": self.state.t}
@@ -419,8 +456,6 @@ class CameraZone:
         head detector on the same frame."""
         from .density import DensityModel
 
-        if self.counter is None:
-            self.counter = DensityModel("sha", "new", max_side=1280)
         with self.frame_lock:
             und, heads = self.last_und, self.last_heads
         if und is None:
@@ -430,15 +465,21 @@ class CameraZone:
                                         self.H_w2u).reshape(-1, 2)
         mask = np.zeros(und.shape[:2], np.uint8)
         cv2.fillPoly(mask, [poly.astype(np.int32)], 1)
-        r = self.counter(und, roi_mask=mask)
+        if ISOLATE_MODELS:
+            count, secs = _isolated(_count_job, und, mask)
+        else:
+            if self.counter is None:
+                self.counter = DensityModel("sha", "new", max_side=1280)
+            r = self.counter(und, roi_mask=mask)
+            count, secs = r.count, r.seconds
         w = cv2.perspectiveTransform(np.asarray(heads, float).reshape(-1, 1, 2), self.H_u2w).reshape(-1, 2) \
             if len(heads) else np.zeros((0, 2))
         n_heads = int(((w[:, 0] >= x0) & (w[:, 0] < x1) & (w[:, 1] >= y0) & (w[:, 1] < y1)).sum())
-        ratio = r.count / max(n_heads, 1)
+        ratio = count / max(n_heads, 1)
         lo, hi = E1_COUNT_RATIO_BAND
         agree = n_heads >= 3 and lo <= ratio <= hi
-        return {"count_primary": n_heads, "count_second": round(r.count, 1), "ratio": round(ratio, 2),
-                "agreement_band": [lo, hi], "agree": bool(agree), "second_counter_ms": round(r.seconds * 1000),
+        return {"count_primary": n_heads, "count_second": round(count, 1), "ratio": round(ratio, 2),
+                "agreement_band": [lo, hi], "agree": bool(agree), "second_counter_ms": round(secs * 1000),
                 "note": "head detector vs DM-Count (OpenCV 5 DNN); band measured on six Jülich runs"}
 
     def jpeg(self) -> bytes | None:
@@ -446,14 +487,38 @@ class CameraZone:
             return self.last_jpeg
 
 
+def forecast_skill(path: Path = ROOT / "eval" / "results" / "test_b_twin.json") -> dict[str, float]:
+    """Mean amount (people/m2) by which the twin's peak exceeded the forecast peak, per action,
+    over the test B seeds (eval/test_b_twin.py). Proposals rank actions on peak + this error."""
+    try:
+        peaks = json.loads(path.read_text())["summary"]["peak_by_action"]
+    except (OSError, KeyError, ValueError):
+        return {}
+    return {k: round(max(0.0, v["simulated_mean"] - v["predicted_mean"]), 2) for k, v in peaks.items()}
+
+
+SKILL = forecast_skill()
+_TWIN_SKILL_KEYS = {("meter_entry", "both gates"): "meter both gates to 150/min", ("meter_entry", "gate A"): "meter gate A to 60/min",
+                    ("meter_entry", "gate B"): "meter gate A to 60/min", ("open_exit", "second exit door"): "open second exit door",
+                    ("hold_entry", "both gates"): "hold both gates", ("none", ""): "no action"}
+
+
+def _with_skill(zone_actions: list[dict]) -> list[dict]:
+    for a in zone_actions:
+        key = _TWIN_SKILL_KEYS.get((a["kind"], a.get("target", "")))
+        if key in SKILL:
+            a["forecast_error"] = SKILL[key]
+    return zone_actions
+
+
 CATALOGUE = VenueCatalogue({
-    TwinZone.name: [
+    TwinZone.name: _with_skill([
         {"kind": "meter_entry", "target": "gate A", "rate_per_min": 60, "share": 0.5, "camera": "cam-C1"},
         {"kind": "meter_entry", "target": "gate B", "rate_per_min": 60, "share": 0.5},
         {"kind": "meter_entry", "target": "both gates", "rate_per_min": 150},
         {"kind": "open_exit", "target": "second exit door", "width_m": tw.SIDE_WIDTH},
         {"kind": "hold_entry", "target": "both gates"},
-    ],
+    ]),
     CameraZone.name: [
         {"kind": "send_steward", "target": "entrance gate", "camera": "cam-E1"},
         {"kind": "announce", "target": "please stop pushing, the gate is open"},

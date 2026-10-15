@@ -126,6 +126,7 @@ class Forecast:
 
 
 TREND_PERSIST_S = 120.0  # a rising or falling inflow is assumed to keep its trend this long, then hold
+TREND_CAP = 1.5  # ...and to rise to at most 1.5 times its current value
 TREND_LAG_S = 5.0  # inflow is estimated over 5 s differences
 
 
@@ -148,8 +149,9 @@ def forecast(zone: str, t: np.ndarray, n: np.ndarray, q_out: np.ndarray, area_m2
 
     t, n, q_out: recent history (seconds, people in zone, outflow persons/s). The inflow
     follows from the mass balance (Q_in = dN/dt + Q_out); its trend over the window is
-    carried forward for `trend_persist_s`, then held. The zone is integrated in 5 s steps
-    with the outflow bounded by the exits' capacity. With fewer than `min_points` samples
+    carried forward for `trend_persist_s` (to at most TREND_CAP times its current value),
+    then held. Outflow scales with the people in the zone up to the exits' capacity. The zone
+    is integrated in 5 s steps. With fewer than `min_points` samples
     in the window the trend is taken as flat."""
     t = np.asarray(t, float)
     n = np.asarray(n, float)
@@ -180,11 +182,14 @@ def forecast(zone: str, t: np.ndarray, n: np.ndarray, q_out: np.ndarray, area_m2
         return q
 
     def leaving(q_in_eff, n_cur):
-        if action.kind != "open_exit":
-            return out_now
-        if n_cur / area_m2 > 1.5:  # a queue at the exits: the new exit runs at its capacity
-            return min(cap_total, out_now + extra)
-        return min(cap_total, max(out_now, q_in_eff))  # people leave as fast as they arrive
+        # outflow scales with the people in the zone (and with the open exit width) until the
+        # exits reach their capacity; an empty zone lets out what comes in
+        if n_now < 1.0:
+            return min(cap_total, q_in_eff)
+        base = out_now * n_cur / n_now
+        if action.kind == "open_exit" and cap > 0:
+            base *= cap_total / cap
+        return min(cap_total, base) if cap_total > 0 else base
 
     def integrate(q0: float, until: float, dt: float = 5.0):
         ts = np.arange(0.0, until + dt / 2, dt)
@@ -192,7 +197,8 @@ def forecast(zone: str, t: np.ndarray, n: np.ndarray, q_out: np.ndarray, area_m2
         cur = n_now
         for i, tau in enumerate(ts):
             ns[i] = cur
-            q = max(0.0, q0 + growth * min(tau, trend_persist_s))
+            q = q0 + growth * min(tau, trend_persist_s)
+            q = float(np.clip(q, 0.0, TREND_CAP * max(q0, 0.5)))
             qe = entering(q)
             cur = float(np.clip(cur + (qe - leaving(qe, cur)) * dt, 0.0, nmax))
         return ts, ns

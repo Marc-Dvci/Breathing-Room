@@ -125,7 +125,8 @@ def main() -> dict:
         acts = {k: r for k, r in v["actions"].items() if k != "no action"}
         if not acts:
             continue
-        # the deterministic planner's rule: lowest predicted peak (to 0.1/m2), then least disruption
+        # the planner's rule without the measured error (the error is what this test measures):
+        # lowest predicted peak (to 0.1/m2), then least disruption
         chosen = min(acts, key=lambda k: (round(acts[k]["predicted_peak"], 1), disruption[ACTIONS[k].kind]))
         best = min(r["simulated_peak"] for r in acts.values())
         regrets.append(acts[chosen]["simulated_peak"] - best)

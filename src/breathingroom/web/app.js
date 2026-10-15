@@ -145,8 +145,8 @@ function proposalCard(p) {
       <div><div class="v">${p.predicted.peak_density.toFixed(1)}</div><div class="l">predicted peak in 10 min, people/m², with this action</div></div>
       <div><div class="v">${none ? none.peak.toFixed(1) : "–"}</div><div class="l">without action</div></div>
     </div>
-    <table><thead><tr><th>Action compared</th><th>Peak</th><th>Min to 4.5</th></tr></thead><tbody>
-      ${alts.map((a) => `<tr class="${a.forecast_id === p.forecast_id ? "chosen" : ""}"><td>${esc(actionLabel(a))}</td><td>${a.peak.toFixed(1)}</td><td>${a.minutes_to_threshold ?? "–"}</td></tr>`).join("")}
+    <table><thead><tr><th>Action compared</th><th title="predicted peak density in 10 minutes, people/m²">Peak</th><th title="how far the twin's peak exceeded this forecast, on average, in testing">Tested error</th><th>Min to 4.5</th></tr></thead><tbody>
+      ${alts.map((a) => `<tr class="${a.forecast_id === p.forecast_id ? "chosen" : ""}"><td>${esc(actionLabel(a))}</td><td>${a.peak.toFixed(1)}</td><td>${a.forecast_error != null ? "+" + a.forecast_error.toFixed(1) : "–"}</td><td>${a.minutes_to_threshold ?? "–"}</td></tr>`).join("")}
     </tbody></table>
     <div class="why">${esc(p.rationale)}</div>
     ${p.replay ? `<div class="note">This zone is a recording. Approving records the decision; the footage cannot change.</div>` : ""}

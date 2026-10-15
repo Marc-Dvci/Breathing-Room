@@ -8,7 +8,8 @@
 # JuPedSim built from its sdist, Caddy for TLS, and the systemd service. Idempotent.
 set -euo pipefail
 HOST=${1:?usage: setup_instance.sh <host, e.g. 1-2-3-4.sslip.io>}
-SRC=/tmp/breathing-room
+SRC=$(cd "$(dirname "$0")/.." && pwd)
+export TMPDIR=/var/tmp  # /tmp is a RAM-backed tmpfs on Amazon Linux 2023: too small for pip builds
 APP=/opt/breathingroom
 CADDY_VERSION=2.10.2
 JUPEDSIM_VERSION=1.4.2
@@ -52,6 +53,8 @@ BR_DATA=$APP/data
 BR_TRACE=$APP/var/trace.jsonl
 BR_USE_MODEL=1
 BR_IDLE_PAUSE_S=120
+BR_ISOLATE_MODELS=1
+BR_DRIFT_EVERY_S=30
 BR_CLOUDWATCH_GROUP=/breathingroom/trace
 BR_CLOUDWATCH_STREAM=console
 AWS_REGION=$REGION
