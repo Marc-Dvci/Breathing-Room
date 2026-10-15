@@ -27,7 +27,7 @@
   <rect class="box" x="20" y="300" width="190" height="96" rx="10"/>
   <text class="h" x="36" y="328">Venue twin</text>
   <text class="t" x="36" y="351">Zone C: JuPedSim crowd,</text>
-  <text class="t" x="36" y="369">gates, exit, side passage</text>
+  <text class="t" x="36" y="369">gates, exit, second door</text>
   <text class="s" x="36" y="387">actions change the crowd</text>
 
   <rect class="box" x="20" y="520" width="190" height="80" rx="10"/>
@@ -37,7 +37,7 @@
 
   <!-- EC2 -->
   <rect class="ec2" x="250" y="40" width="680" height="600" rx="14"/>
-  <text class="h" x="268" y="66">Amazon EC2 c8g.large · Graviton 4 (Arm) · Amazon Linux 2023</text>
+  <text class="h" x="268" y="66">Amazon EC2 t4g.small · AWS Graviton (Arm) · Amazon Linux 2023</text>
 
   <rect class="cv" x="270" y="84" width="390" height="210" rx="10"/>
   <text class="h" x="286" y="110">OpenCV 5 vision pipeline</text>
@@ -46,7 +46,7 @@
   <text class="t" x="286" y="172">connectedComponentsWithStats</text>
   <text class="t" x="286" y="192">DIS optical flow · head-plane homography</text>
   <text class="t" x="286" y="212">Helbing fields: GaussianBlur on a 0.1 m grid</text>
-  <text class="t" x="286" y="232">gate-line flux · overlay: warpPerspective, imencode</text>
+  <text class="t" x="286" y="232">heads across the gate line · warpPerspective, imencode</text>
   <text class="s" x="286" y="256">→ density /m², pushing index /s², outflow /s</text>
   <text class="s" x="286" y="276">5 field samples per second of video</text>
 
@@ -54,13 +54,13 @@
   <text class="h" x="696" y="110">Camera watchdog</text>
   <text class="t" x="696" y="132">ALIKED + LightGlue</text>
   <text class="t" x="696" y="150">(features module)</text>
-  <text class="t" x="696" y="168">USAC MAGSAC homography</text>
+  <text class="t" x="696" y="168">USAC MAGSAC, every 30 s</text>
 
   <rect class="cv" x="680" y="194" width="230" height="100" rx="10"/>
   <text class="h" x="696" y="220">Second counter</text>
   <text class="t" x="696" y="242">DM-Count ONNX on the</text>
   <text class="t" x="696" y="260">DNN engine (ENGINE_NEW)</text>
-  <text class="s" x="696" y="280">checks the head count</text>
+  <text class="s" x="696" y="280">checks the head count (own process)</text>
 
   <rect class="box" x="270" y="320" width="300" height="86" rx="10"/>
   <text class="h" x="286" y="346">Zone physics</text>

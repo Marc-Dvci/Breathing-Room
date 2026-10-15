@@ -27,7 +27,7 @@
   <text class="t" x="46" y="124">pushing index</text>
   <text class="t" x="46" y="144">outflow at the gate</text>
   <text class="t" x="46" y="164">camera trust (watchdog,</text>
-  <text class="t" x="46" y="182">every 15 s)</text>
+  <text class="t" x="46" y="182">every 15 to 30 s)</text>
 
   <text class="k" x="270" y="40">DECIDE THE TIER</text>
   <rect class="det" x="270" y="52" width="200" height="150" rx="10"/>
@@ -48,7 +48,7 @@
   <text class="t" x="742" y="116">DM-Count vs heads</text>
   <rect class="box" x="530" y="142" width="185" height="58" rx="8"/>
   <text class="h" x="544" y="166">measure_exit_flow</text>
-  <text class="t" x="544" y="186">gate-line flux</text>
+  <text class="t" x="544" y="186">heads across the gate</text>
   <rect class="box" x="728" y="142" width="185" height="58" rx="8"/>
   <text class="h" x="742" y="166">forecast_action ×n</text>
   <text class="t" x="742" y="186">mass balance per action</text>
@@ -67,8 +67,8 @@
 
   <rect class="det" x="970" y="200" width="200" height="102" rx="10"/>
   <text class="h" x="986" y="228">Action applied</text>
-  <text class="t" x="986" y="252">meter a gate, open the</text>
-  <text class="t" x="986" y="272">side passage, send a steward</text>
+  <text class="t" x="986" y="252">meter a gate, open a</text>
+  <text class="t" x="986" y="272">second door, send a steward</text>
 
   <rect class="det" x="670" y="380" width="260" height="100" rx="10"/>
   <text class="h" x="686" y="408">Verify after 90 s</text>

@@ -177,7 +177,7 @@ class Venue:
 
 
 def polygon_outline() -> dict:
-    """Floor plan outline for the console (street, exits, side passage, zone, gates)."""
+    """Floor plan outline for the console (street, exits, second door, zone, gates)."""
     def coords(p: Polygon):
         return [list(map(float, c)) for c in p.exterior.coords]
     return {

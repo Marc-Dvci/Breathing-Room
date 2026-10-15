@@ -197,7 +197,9 @@ function summarise(c) {
 }
 
 function renderSteps(snap) {
-  const ep = snap.episodes.slice(-1)[0];
+  // the investigation behind the proposal waiting for the steward, else the latest one
+  const pending = snap.proposals.find((p) => p.status === "pending");
+  const ep = (pending && snap.episodes.filter((e) => e.zone === pending.zone && e.done).slice(-1)[0]) || snap.episodes.slice(-1)[0];
   $("#stepzone").textContent = ep ? `· ${ep.zone}` : "";
   $("#steps").innerHTML = !ep ? `<li><span></span><span class="res">Nothing to investigate yet.</span></li>` :
     ep.calls.map((c, i) => `<li><span class="n">${i + 1}</span><span><span class="tool">${esc(c.tool.replaceAll("_", " "))}</span><br><span class="res">${esc(summarise(c))}</span></span><span class="ms">${Math.round(c.ms)} ms</span></li>`).join("");
