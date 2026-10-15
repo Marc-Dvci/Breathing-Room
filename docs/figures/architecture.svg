@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="660" viewBox="0 0 1200 660" font-family="Inter, Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#52514e"/>
+    </marker>
+    <style>
+      .box { fill: #ffffff; stroke: #c9ccd1; stroke-width: 1.2; }
+      .cv  { fill: #eef6f5; stroke: #0f766e; stroke-width: 1.4; }
+      .aws { fill: #fff7ee; stroke: #d97706; stroke-width: 1.2; }
+      .ec2 { fill: #fbfbfa; stroke: #d97706; stroke-width: 1.4; stroke-dasharray: 6 4; }
+      .h  { font-size: 15px; font-weight: 600; fill: #14181f; }
+      .t  { font-size: 13px; fill: #3d4350; }
+      .s  { font-size: 12px; fill: #6b7280; }
+      .ln { stroke: #52514e; stroke-width: 1.4; fill: none; marker-end: url(#a); }
+      .lb { font-size: 12px; fill: #52514e; }
+    </style>
+  </defs>
+  <rect width="1200" height="660" fill="#ffffff"/>
+
+  <!-- sources -->
+  <rect class="box" x="20" y="90" width="190" height="96" rx="10"/>
+  <text class="h" x="36" y="118">CCTV camera</text>
+  <text class="t" x="36" y="141">Entrance E1: Jülich</text>
+  <text class="t" x="36" y="159">entrance run 150, replayed</text>
+  <text class="s" x="36" y="177">1920×1440, 25 fps, fisheye</text>
+
+  <rect class="box" x="20" y="300" width="190" height="96" rx="10"/>
+  <text class="h" x="36" y="328">Venue twin</text>
+  <text class="t" x="36" y="351">Zone C: JuPedSim crowd,</text>
+  <text class="t" x="36" y="369">gates, exit, side passage</text>
+  <text class="s" x="36" y="387">actions change the crowd</text>
+
+  <rect class="box" x="20" y="520" width="190" height="80" rx="10"/>
+  <text class="h" x="36" y="548">Steward</text>
+  <text class="t" x="36" y="571">approves or rejects</text>
+  <text class="t" x="36" y="589">in the browser</text>
+
+  <!-- EC2 -->
+  <rect class="ec2" x="250" y="40" width="680" height="600" rx="14"/>
+  <text class="h" x="268" y="66">Amazon EC2 c8g.large · Graviton 4 (Arm) · Amazon Linux 2023</text>
+
+  <rect class="cv" x="270" y="84" width="390" height="210" rx="10"/>
+  <text class="h" x="286" y="110">OpenCV 5 vision pipeline</text>
+  <text class="t" x="286" y="134">VideoCapture · remap (lens undistortion)</text>
+  <text class="t" x="286" y="154">head detection: cvtColor, inRange, morphology,</text>
+  <text class="t" x="286" y="172">connectedComponentsWithStats</text>
+  <text class="t" x="286" y="192">DIS optical flow · head-plane homography</text>
+  <text class="t" x="286" y="212">Helbing fields: GaussianBlur on a 0.1 m grid</text>
+  <text class="t" x="286" y="232">gate-line flux · overlay: warpPerspective, imencode</text>
+  <text class="s" x="286" y="256">→ density /m², pushing index /s², outflow /s</text>
+  <text class="s" x="286" y="276">5 field samples per second of video</text>
+
+  <rect class="cv" x="680" y="84" width="230" height="100" rx="10"/>
+  <text class="h" x="696" y="110">Camera watchdog</text>
+  <text class="t" x="696" y="132">ALIKED + LightGlue</text>
+  <text class="t" x="696" y="150">(features module)</text>
+  <text class="t" x="696" y="168">USAC MAGSAC homography</text>
+
+  <rect class="cv" x="680" y="194" width="230" height="100" rx="10"/>
+  <text class="h" x="696" y="220">Second counter</text>
+  <text class="t" x="696" y="242">DM-Count ONNX on the</text>
+  <text class="t" x="696" y="260">DNN engine (ENGINE_NEW)</text>
+  <text class="s" x="696" y="280">checks the head count</text>
+
+  <rect class="box" x="270" y="320" width="300" height="86" rx="10"/>
+  <text class="h" x="286" y="346">Zone physics</text>
+  <text class="t" x="286" y="368">mass balance: dN/dt = Q_in − Q_out</text>
+  <text class="t" x="286" y="388">minutes to 4.5/m², effect of each action</text>
+
+  <rect class="box" x="590" y="320" width="320" height="86" rx="10"/>
+  <text class="h" x="606" y="346">Tier policy (deterministic)</text>
+  <text class="t" x="606" y="368">NORMAL · WATCH · WARN · ACT · CRITICAL</text>
+  <text class="t" x="606" y="388">from measured numbers only</text>
+
+  <rect class="box" x="490" y="430" width="420" height="100" rx="10"/>
+  <text class="h" x="506" y="456">Agent episode</text>
+  <text class="t" x="506" y="478">tools: get_zone_state, check_camera, cross_check_count,</text>
+  <text class="t" x="506" y="496">measure_exit_flow, forecast_action, propose_action,</text>
+  <text class="t" x="506" y="514">request_recalibration · guards refuse ungrounded output</text>
+
+  <rect class="box" x="270" y="430" width="200" height="100" rx="10"/>
+  <text class="h" x="286" y="456">Trace</text>
+  <text class="t" x="286" y="478">hash-chained JSONL:</text>
+  <text class="t" x="286" y="496">tiers, tool calls,</text>
+  <text class="t" x="286" y="514">decisions, verifications</text>
+
+  <rect class="box" x="270" y="554" width="640" height="68" rx="10"/>
+  <text class="h" x="286" y="580">Steward console · FastAPI + Caddy (TLS, Let's Encrypt)</text>
+  <text class="t" x="286" y="602">zone tiles, camera overlay, venue plan, proposal with predicted effect, approve / reject, verify after 90 s</text>
+
+  <!-- AWS services -->
+  <rect class="aws" x="970" y="430" width="210" height="100" rx="10"/>
+  <text class="h" x="986" y="456">Amazon Bedrock</text>
+  <text class="t" x="986" y="478">gpt-oss-120b, OpenAI-</text>
+  <text class="t" x="986" y="496">compatible endpoint</text>
+  <text class="s" x="986" y="516">bearer token from the role</text>
+
+  <rect class="aws" x="970" y="300" width="210" height="80" rx="10"/>
+  <text class="h" x="986" y="328">CloudWatch Logs</text>
+  <text class="t" x="986" y="350">the same trace, per entry</text>
+
+  <rect class="aws" x="970" y="90" width="210" height="160" rx="10"/>
+  <text class="h" x="986" y="118">Operations</text>
+  <text class="t" x="986" y="142">IAM instance role</text>
+  <text class="t" x="986" y="162">Systems Manager (no SSH)</text>
+  <text class="t" x="986" y="182">S3 deploy bundle</text>
+  <text class="t" x="986" y="202">Elastic IP + sslip.io</text>
+  <text class="t" x="986" y="222">security group: 80, 443</text>
+
+  <!-- arrows -->
+  <path class="ln" d="M210,138 L268,138"/>
+  <path class="ln" d="M210,348 L268,362"/>
+  <path class="ln" d="M465,294 L465,318"/>
+  <path class="ln" d="M570,363 L588,363"/>
+  <path class="ln" d="M750,406 L750,428"/>
+  <path class="ln" d="M488,480 L472,480"/>
+  <path class="ln" d="M910,470 L968,470"/>
+  <path class="ln" d="M968,492 L912,492"/>
+  <path class="ln" d="M370,530 L370,542 L950,542 L950,346 L968,346"/>
+  <path class="ln" d="M268,588 L212,566"/>
+  <path class="ln" d="M212,584 L268,604"/>
+  <path class="ln" d="M660,140 L678,140"/>
+</svg>

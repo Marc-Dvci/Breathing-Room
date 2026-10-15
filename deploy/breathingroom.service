@@ -1,0 +1,18 @@
+[Unit]
+Description=Breathing Room console (OpenCV 5 on Graviton)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=breathingroom
+WorkingDirectory=/opt/breathingroom
+EnvironmentFile=/etc/breathingroom.env
+ExecStart=/opt/breathingroom/.venv/bin/uvicorn breathingroom.api:app --host 127.0.0.1 --port 8000 --app-dir /opt/breathingroom/src
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/opt/breathingroom/var
+
+[Install]
+WantedBy=multi-user.target

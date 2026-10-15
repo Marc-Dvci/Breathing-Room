@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Breathing Room</title>
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="bar">
+  <div class="brand"><img src="/static/icon.svg" alt="" width="28" height="28"><span>Breathing Room</span></div>
+  <div class="venue">Demonstration venue · Station Road and Entrance E1</div>
+  <div class="meta">
+    <span id="clock" class="chip">t = 0:00</span>
+    <span id="planner" class="chip">agent</span>
+    <span id="conn" class="dot" title="connection"></span>
+  </div>
+</header>
+
+<main>
+  <section class="tiles" id="tiles" aria-label="Zones"></section>
+
+  <section class="grid">
+    <div class="card camera">
+      <div class="card-head">
+        <h2>Camera E1 · entrance</h2>
+        <div class="actions">
+          <button class="ghost" id="bump" title="Simulate a knock to the camera">Knock camera</button>
+          <button class="ghost" id="unbump" title="Restore the camera">Restore</button>
+        </div>
+      </div>
+      <img id="cam" alt="Entrance camera with the pushing index overlaid on the floor" src="">
+      <p class="caption" id="camcap">Recorded entrance footage (Forschungszentrum Jülich, CC BY 4.0) processed live with OpenCV 5:
+        lens undistortion, head detection, DIS optical flow, head-plane homography and Helbing's crowd pressure.
+        Brighter means more pushing. Green line: where the outflow is measured. <span id="camms"></span></p>
+    </div>
+
+    <div class="card plan">
+      <div class="card-head">
+        <h2>Station Road · venue twin</h2>
+        <div class="actions">
+          <button class="ghost" id="speed" data-next="speed4">Fast forward ×4</button>
+          <button class="ghost" id="restart" title="Start the evening again">Restart evening</button>
+        </div>
+      </div>
+      <canvas id="plan" width="900" height="330" aria-label="Floor plan with people"></canvas>
+      <div class="planinfo" id="planinfo"></div>
+      <div class="legend"><span class="sw lo"></span>calm<span class="sw mid"></span>tight<span class="sw hi"></span>crowded</div>
+      <canvas id="chart" width="900" height="210" aria-label="Density in Zone C over time with the forecast"></canvas>
+      <p class="caption">Zone C density (people per m²). Solid: measured. Dashed: what the approved action is predicted to do.</p>
+    </div>
+
+    <div class="card steward">
+      <div class="card-head"><h2>For the steward</h2></div>
+      <div id="proposal" aria-live="polite"><p class="empty">No action needed. The assistant investigates any zone that reaches WARN.</p></div>
+      <h3>What the assistant checked <span id="stepzone"></span></h3>
+      <ol id="steps" class="steps"></ol>
+    </div>
+  </section>
+
+  <section class="card log">
+    <div class="card-head"><h2>Record</h2><a href="/api/trace/verify" target="_blank" rel="noopener" class="small">verify chain</a></div>
+    <ul id="log"></ul>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

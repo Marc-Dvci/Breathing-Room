@@ -1,0 +1,40 @@
+[project]
+name = "breathingroom"
+version = "1.0.0"
+description = "Crowd-crush early warning from ordinary CCTV: density, pushing and minutes to danger, with a steward in charge"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "opencv-contrib-python==5.0.0.93",
+  "numpy>=1.26,<3",
+  "scipy>=1.11",
+  "jupedsim==1.4.2",
+  "shapely>=2.0",
+  "fastapi==0.118.0",
+  "uvicorn==0.37.0",
+  "openai==3.14.1",
+  "aws-bedrock-token-generator==1.1.0",
+  "boto3>=1.35",
+]
+
+[project.optional-dependencies]
+eval = ["pandas>=2.0", "scikit-learn>=1.3", "matplotlib>=3.8", "openpyxl"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+breathingroom = ["web/*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 130
+target-version = "py310"

@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" font-family="Inter, Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#52514e"/>
+    </marker>
+    <style>
+      .box { fill: #ffffff; stroke: #c9ccd1; stroke-width: 1.2; }
+      .cv  { fill: #eef6f5; stroke: #0f766e; stroke-width: 1.4; }
+      .det { fill: #f3f4f6; stroke: #6b7280; stroke-width: 1.2; }
+      .llm { fill: #fff7ee; stroke: #d97706; stroke-width: 1.2; }
+      .hum { fill: #eef4fc; stroke: #2a78d6; stroke-width: 1.4; }
+      .k  { font-size: 12px; font-weight: 700; letter-spacing: .06em; fill: #6b7280; }
+      .h  { font-size: 15px; font-weight: 600; fill: #14181f; }
+      .t  { font-size: 13px; fill: #3d4350; }
+      .ln { stroke: #52514e; stroke-width: 1.4; fill: none; marker-end: url(#a); }
+      .dl { stroke: #9f1239; stroke-width: 1.4; fill: none; stroke-dasharray: 5 4; marker-end: url(#a); }
+      .lb { font-size: 12px; fill: #52514e; }
+      .lr { font-size: 12px; fill: #9f1239; }
+    </style>
+  </defs>
+  <rect width="1200" height="520" fill="#ffffff"/>
+
+  <text class="k" x="30" y="40">PERCEIVE</text>
+  <rect class="cv" x="30" y="52" width="200" height="150" rx="10"/>
+  <text class="h" x="46" y="80">OpenCV 5 measures</text>
+  <text class="t" x="46" y="104">density per m²</text>
+  <text class="t" x="46" y="124">pushing index</text>
+  <text class="t" x="46" y="144">outflow at the gate</text>
+  <text class="t" x="46" y="164">camera trust (watchdog,</text>
+  <text class="t" x="46" y="182">every 15 s)</text>
+
+  <text class="k" x="270" y="40">DECIDE THE TIER</text>
+  <rect class="det" x="270" y="52" width="200" height="150" rx="10"/>
+  <text class="h" x="286" y="80">Tier policy</text>
+  <text class="t" x="286" y="104">deterministic rules on</text>
+  <text class="t" x="286" y="124">measured numbers;</text>
+  <text class="t" x="286" y="144">WARN or above, or a</text>
+  <text class="t" x="286" y="164">moved camera, opens</text>
+  <text class="t" x="286" y="184">an episode</text>
+
+  <text class="k" x="510" y="40">INVESTIGATE (gpt-oss-120b on Amazon Bedrock)</text>
+  <rect class="llm" x="510" y="52" width="420" height="250" rx="10"/>
+  <rect class="cv" x="530" y="72" width="185" height="58" rx="8"/>
+  <text class="h" x="544" y="96">check_camera</text>
+  <text class="t" x="544" y="116">ALIKED + LightGlue</text>
+  <rect class="cv" x="728" y="72" width="185" height="58" rx="8"/>
+  <text class="h" x="742" y="96">cross_check_count</text>
+  <text class="t" x="742" y="116">DM-Count vs heads</text>
+  <rect class="box" x="530" y="142" width="185" height="58" rx="8"/>
+  <text class="h" x="544" y="166">measure_exit_flow</text>
+  <text class="t" x="544" y="186">gate-line flux</text>
+  <rect class="box" x="728" y="142" width="185" height="58" rx="8"/>
+  <text class="h" x="742" y="166">forecast_action ×n</text>
+  <text class="t" x="742" y="186">mass balance per action</text>
+  <rect class="box" x="530" y="212" width="383" height="82" rx="8"/>
+  <text class="h" x="544" y="232">Guards (code, not the model)</text>
+  <text class="t" x="544" y="250">the action must be in the venue catalogue</text>
+  <text class="t" x="544" y="267">the proposal must cite its own forecast</text>
+  <text class="t" x="544" y="284">radio numbers must come from tool results</text>
+
+  <text class="k" x="970" y="40">ACT, WITH A PERSON</text>
+  <rect class="hum" x="970" y="52" width="200" height="110" rx="10"/>
+  <text class="h" x="986" y="80">Steward decides</text>
+  <text class="t" x="986" y="104">radio message, predicted</text>
+  <text class="t" x="986" y="124">peak with and without,</text>
+  <text class="t" x="986" y="144">approve or reject</text>
+
+  <rect class="det" x="970" y="200" width="200" height="102" rx="10"/>
+  <text class="h" x="986" y="228">Action applied</text>
+  <text class="t" x="986" y="252">meter a gate, open the</text>
+  <text class="t" x="986" y="272">side passage, send a steward</text>
+
+  <rect class="det" x="670" y="380" width="260" height="100" rx="10"/>
+  <text class="h" x="686" y="408">Verify after 90 s</text>
+  <text class="t" x="686" y="432">measured density against the</text>
+  <text class="t" x="686" y="452">forecast curve of the action</text>
+
+  <rect class="box" x="30" y="380" width="340" height="100" rx="10"/>
+  <text class="h" x="46" y="408">Recalibration request</text>
+  <text class="t" x="46" y="432">camera moved: its numbers stop</text>
+  <text class="t" x="46" y="452">counting; no crowd action from it</text>
+
+  <path class="ln" d="M230,127 L268,127"/>
+  <path class="ln" d="M470,127 L508,127"/>
+  <path class="ln" d="M930,107 L968,107"/>
+  <path class="ln" d="M1070,162 L1070,198"/>
+  <path class="ln" d="M1070,302 L1070,430 L932,430"/>
+  <path class="ln" d="M670,430 L420,430 L420,230 L130,230 L130,204"/>
+  <text class="lb" x="430" y="422">working: keep measuring</text>
+  <path class="dl" d="M800,380 L800,304"/>
+  <text class="lr" x="808" y="350">not working: new episode at ACT</text>
+  <path class="dl" d="M620,302 L620,340 L200,340 L200,378"/>
+  <text class="lr" x="470" y="332">camera untrusted</text>
+</svg>
