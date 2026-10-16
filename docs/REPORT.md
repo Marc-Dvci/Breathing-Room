@@ -4,18 +4,20 @@ Marc Donovici · OpenCV AI Competition 2026 · October 2026
 
 Breathing Room measures three things per zone from ordinary CCTV: density in people per m², a
 pushing index from crowd motion, and minutes until the zone reaches 4.5 people per m² at the
-current inflow. An agent turns a warning into one proposed action with its predicted effect, a
-steward approves or rejects it, and the system checks 90 seconds later whether the action
-worked. This report covers the problem, the users, the architecture, the OpenCV 5
+current inflow. An agent turns a warning into one proposed action with its predicted effect and
+a camera crop of where the pushing is, a steward approves or rejects it, and the system checks
+90 seconds later whether the action worked. The record of the evening is hash-chained and
+rendered as a report for the safety officer. This report covers the problem, the users, the architecture, the OpenCV 5
 implementation, the AWS deployment, the evaluation with its failures, the limitations and
 responsible use.
 
 ## 1. Problem
 
 Crowd crushes build up over minutes, and they are visible on camera before anyone dies. At
-Itaewon, Seoul, on 29 October 2022, the first emergency call warning of a crush came at 18:34;
-the crush that killed 159 people happened at about 22:15. Since 2023 Seoul has run software that
-counts people on CCTV and alerts the district safety room.
+Itaewon, Seoul, on 29 October 2022, the first of 11 emergency calls warning of a crush came at
+18:34. Police investigators later estimated from security footage about 8 people per m² in the
+alley at 22:15 and 9 to 11 per m² by 22:25; 159 people died. Since 2023 Seoul has run software
+that counts people on CCTV and alerts the district safety room.
 
 A head count answers one question: how full is this street? Stewards need two more answers:
 
@@ -60,14 +62,17 @@ committed under it, so the console always reads a consistent snapshot.
 | Step | OpenCV 5 | Notes |
 |---|---|---|
 | Decode | `VideoCapture` | read forwards with `grab`/`read`: seeking per frame cost 75 ms and could abort the FFmpeg decoder |
+| Working size | `resize` (`INTER_AREA`) | each frame is reduced to half size once; the camera matrices are scaled to match, so undistortion and head search run on a quarter of the pixels |
 | Lens | `initUndistortRectifyMap`, `remap`, `undistortPoints`, `projectPoints` | lens recovered from SIFT matches between the original and a published undistorted video (0.29 px median) |
-| Heads | `cvtColor` (HSV), `inRange`, `morphologyEx`, `connectedComponentsWithStats` | the Jülich participants wore orange caps |
+| Heads | `cvtColor` (HSV), `inRange`, `connectedComponentsWithStats` | the Jülich participants wore orange caps; heads are returned in full-size undistorted pixels |
 | Motion | `DISOpticalFlow` (medium, 960 px) | flow between frames 0.08 s apart |
 | Metric geometry | `findHomography` (USAC MAGSAC, RANSAC fallback), `perspectiveTransform` | head-plane homography; focal length and camera pose recovered from the floor homography for oblique views |
 | Crowd fields | `GaussianBlur` on a 0.1 m grid | Helbing et al. (2007): density, velocity variance, pressure = density × variance |
 | Outflow | Hungarian matching of heads between samples (SciPy), line test in metres | heads crossing a line 0.4 m before the gate |
 | Second count | `dnn.readNetFromONNX` with `ENGINE_NEW`, `blobFromImage` | DM-Count (SHA for the overhead view, QNRF for oblique street CCTV) |
-| Camera watchdog | `ALIKED_create`, `LightGlueMatcher_create` (features module), `findHomography` (USAC MAGSAC) | moves the calibration points and measures their shift on the floor in metres |
+| Camera screen | `findTransformECC` (`MOTION_HOMOGRAPHY`, coarse to fine, with a mask) | every 3 s; the mask keeps the pixels that stay still in the recording (barriers, floor, walls) |
+| Camera confirmation | `ALIKED_create`, `LightGlueMatcher_create` (features module), `findHomography` (USAC MAGSAC) | when the screen sees motion, and every 10 minutes; both stages move the calibration points and measure their shift on the floor in metres |
+| Where the pushing is | `connectedComponentsWithStats` on the thresholded field, `warpPerspective`, `imencode` | regions placed relative to the gate in metres, and cut out of the camera image for the steward |
 | Overlay | `warpPerspective`, `applyColorMap`, `polylines`, `imencode` | the pushing field is drawn back onto the image through the homography |
 
 **Pushing index.** For each person, Helbing's density ρ and the velocity variance within a
@@ -95,17 +100,21 @@ Dashed red paths are the failure branches.*
   (gpt-oss-120b on the Amazon Bedrock API endpoint) decides which tools to call, which action to
   propose, and writes the radio message. A steward approves or rejects. Nothing reaches a gate or
   a public-address system without that.
-- **Tools.** `get_zone_state`, `check_camera` (ALIKED + LightGlue), `cross_check_count`
-  (DM-Count against the head count), `measure_exit_flow`, `forecast_action`, `propose_action`,
-  `request_recalibration`, `no_action`. Every forecast in one episode uses the same frozen
+- **Tools.** `get_zone_state`, `check_camera` (ECC screen, confirmed by ALIKED + LightGlue when
+  it sees motion), `cross_check_count` (DM-Count against the head count, with an agreement band
+  measured on six runs), `locate_pushing` (hotspots in metres from the gate, with a camera crop),
+  `measure_exit_flow`, `forecast_action`, `propose_action`, `request_recalibration`, `no_action`. Every forecast in one episode uses the same frozen
   history, so the compared actions are comparable.
 - **Vision changes what happens next.** A camera that fails the watchdog stops counting: the
   agent asks for recalibration and proposes no crowd action from it. A count that disagrees with
-  the second counter is reported as such. The forecast drives which action is proposed.
+  the second counter is reported as such. `locate_pushing` decides where the action goes: the
+  radio message names the side and the distance before the gate, and the steward sees the crop.
+  The forecast drives which action is proposed.
 - **Guards in code.** The action must be in the venue's catalogue; the proposal must cite a
   forecast from its own episode; every number in the radio message must match a number returned
-  by a tool (`Episode.ungrounded_numbers`). A refusal goes back to the model as a tool result, and
-  the model corrects itself.
+  by a tool (`Episode.ungrounded_numbers`); a less disruptive action within 0.25/m² cannot be
+  skipped; and a zone whose own state says it reaches 4.5/m² within 10 minutes cannot be closed
+  without action. A refusal goes back to the model as a tool result, and the model corrects itself.
 - **Measured forecast error.** Each catalogue action carries the error its forecast made in test
   B. `forecast_action` returns the peak with that error added, and proposals rank actions on it.
 - **Failure handling.** A failing tool is reported to the model, never raised. An unreachable
@@ -138,11 +147,17 @@ homography, fields) and sampled at each rated person's position. Nothing is trai
 | Density from video | 0.786 |
 | Pushing index from the reference trajectories | 0.776 |
 | Pushing index from DM-Count density | 0.767 |
+| Pushing index from the console's `CameraZone`, at half resolution | 0.797 |
 
 ![Test A by density band](figures/fig_test_a_bands.png)
 
 *Within each density band, where a head count carries no information, the pushing index still
 separates pushing from walking.*
+
+`eval/test_a_pushing.py` builds the fields with its own loop. `eval/test_a_console.py` runs the
+console's `CameraZone.tick` itself, at the half resolution the console runs at, over the same six
+runs and 9,260 rows: AUROC 0.797, and 0.87, 0.85, 0.74, 0.73 and 0.69 within the density bands.
+At full resolution the same code gives 0.798. The deployed pipeline is the evaluated one.
 
 The threshold 0.11 /s² is the Youden point on runs 030, 040 and 050. On runs 060, 150 and 160 it
 flags 90% of pushing person-seconds and 31% of walking ones. Video density against the reference
@@ -150,13 +165,23 @@ trajectories: Pearson 0.996, mean absolute error 0.13 people/m².
 
 ### 6.2 Outflow from video
 
-Heads counted across the gate line in run 150: 56 people, the same 56 as the trajectories; mean
-1.00 people/s against 1.00, error 0.04 people/s, r = 0.947 on 5 s averages. A first version that
+Heads counted across the gate line in run 150 by the console's pipeline: 56 people, the same 56
+as the trajectories; mean 1.00 people/s against 1.00, error 0.04 people/s, r = 0.947 on 5 s
+averages. At half resolution a morphological opening erased the smallest caps and the count fell
+to 55; the half-size detector keeps the area test and drops the opening. A first version that
 integrated the fields' flux through the line read 40% low; counting matched heads replaced it.
 
 ![E1 outflow](figures/fig_e1_outflow.png)
 
 *Outflow through the E1 gate, measured from video and from the published trajectories.*
+
+### 6.2b Agreement of the two counters
+
+`cross_check_count` runs DM-Count on the zone's bounding box at half resolution (710 ms per count
+on the desktop, against 6.9 s for the whole frame at 1280 px) and compares it with the head count
+in the zone. Over 398 frames of the six runs, every 0.8 s with at least 3 heads in the zone, the
+ratio DM-Count / heads has median 0.45 and stays within 0.22 to 0.79 on 95% of frames (r = 0.91).
+That band is the console's definition of agreement.
 
 ### 6.3 Exit capacity
 
@@ -198,23 +223,29 @@ people near the exits use the open door they are lined up with.
 
 ### 6.5 Test C: the agent
 
-17 episodes on fixed scenarios built from the real pipeline, gpt-oss-120b on Amazon Bedrock.
+20 episodes on fixed scenarios built from the real pipeline, gpt-oss-120b on Amazon Bedrock. Each
+episode starts with the reasons the tier policy gives for the zone's measured state.
 
 | Scenario | Episodes | Expected decision | Outcome |
 |---|---|---|---|
-| Zone C filling (WARN, about 9 minutes to 4.5/m²) | 5 | proposal | 5/5, all "meter both gates to 150/min", each citing its own forecast |
-| Entrance E1, pushing, density falling | 5 | proposal | 4/5 an announcement asking people to stop pushing; once it closed without action, although its reason said an announcement would be sufficient |
-| Entrance E1, camera knocked | 5 | recalibration request | 5/5, after 2 or 3 tool calls |
+| Zone C filling (WARN, about 9 minutes to 4.5/m²) | 6 | proposal | 6/6, all "meter both gates to 150/min", each citing its own forecast |
+| Entrance E1, pushing, density not rising | 6 | proposal | 6/6 an announcement; in 6/6 the agent called `locate_pushing` (a 4.6 m² region reaching 5.6/m², 1.4 m before the gate) and the radio message says where the pushing is |
+| Entrance E1, camera knocked | 6 | recalibration request | 6/6, median 3 tool calls and 7 s |
 | Zone C, model endpoint unreachable | 2 | deterministic planner | 2/2 |
 
-16 of 17 overall; median 6 to 7 tool calls and 15 s per model episode. Two calls were refused in
-the final run (a `meter_entry` with no target where three gates exist); the model named the
-target on its next call. Earlier runs showed what the other guards are for: the model wrote
-"stable for 10 minutes" when no tool returned 10 (now refused), once took the minutes left from
-an action's forecast instead of the zone's state (the prompt now names the field), and once
-proposed holding both gates when metering them had the same predicted peak (now refused in
-favour of the less disruptive action). One earlier episode met an out-of-memory error inside
-`check_camera`; the agent treated the camera as unverified and asked for recalibration.
+20 of 20 overall; a crowd episode takes a median 7 tool calls and 14 to 18 s. Two calls were refused
+in the final run (a `meter_entry` with no target where three gates exist); the model named the
+target on its next call. In the run before it, one of the six filling-zone episodes closed with
+`no_action`, reading an action's forecast (0.55/m²) as the zone's future while `get_zone_state`
+said 9.1 minutes to 4.5/m². Code now refuses `no_action` while the zone's own state says it
+reaches 4.5/m² within 10 minutes, unless a no-action forecast shows it stays below. Earlier runs showed what the guards are for: the model wrote "stable for 10 minutes"
+when no tool returned 10 (now refused), once took the minutes left from an action's forecast
+instead of the zone's state (the prompt now names the field), once proposed holding both gates
+when metering them had the same predicted peak (now refused in favour of the less disruptive
+action), and once closed a pushing episode without proposing the announcement its own reason
+called for (16 of 17 before `locate_pushing`; the prompt now asks the agent to locate pushing
+before it chooses). One earlier episode met an out-of-memory error inside `check_camera`; the
+agent treated the camera as unverified and asked for recalibration.
 
 ### 6.6 Test D: counting on oblique street CCTV
 
@@ -232,38 +263,59 @@ which is why E1 uses it as a second counter with an agreement band measured on s
 
 ### 6.7 Test E: the camera watchdog
 
-96 checks: 12 moments of run 150 against the calibration frame, each as recorded and after
-knocks of 0.25 to 4 degrees of roll with a proportional shift. The watchdog flagged 36 of 36
-knocks that moved the floor by more than its 0.25 m tolerance, raised no alarm on 60 checks
-below it, and measured the floor shift to 2 mm (median; 4 mm at the 90th percentile).
+216 checks: 12 moments of run 150 against the calibration frame, each as recorded and after
+moves of known size: a roll of 0.25 to 4 degrees with a proportional shift, a zoom of 1 to 8%,
+and a tilt that narrows one edge of the image by 1 to 8%. The true floor shift of the
+calibration points is known for each.
+
+| Stage | Floor shift error (median, p90) | Time on Graviton | Result |
+|---|---|---|---|
+| ECC screen, `findTransformECC` with a homography model on the still pixels | 4 mm, 11 mm | 228 ms | sends every move above half the tolerance to the second stage |
+| ALIKED + LightGlue, USAC MAGSAC | 2 mm, 5 mm | 3,046 ms | trust decision |
+| Both, as the console runs them | | | **84 of 84** moves above 0.25 m flagged, **0** false alarms in 132 checks |
+
+The first version of the screen used a rotation-plus-shift model. It measured rolls well and
+read a 2% zoom or tilt as steady; the homography model measures all three. On the console the
+screen runs every 3 s and ALIKED + LightGlue run only when the screen sees motion, when trust is
+being restored, and every 10 minutes. A screen that measures a shift beyond the tolerance
+withdraws trust at once (on test E it does so for 84 of 84 moves above 0.25 m and for none of the
+132 below); only ALIKED + LightGlue give trust back. On the live t4g.small a knock is flagged 2.7
+to 4.9 s after it happens (three trials through the API). The earlier watchdog ran ALIKED +
+LightGlue every 30 s on the instance.
 
 ### 6.8 Speed
 
-Per-stage medians, same frames, pip `opencv-contrib-python(-headless)` 5.0.0.93:
+Per-stage medians on the t4g.small, same frames, pip `opencv-contrib-python-headless` 5.0.0.93,
+console stopped (`bench/results/graviton2_t4g_small.json`):
 
-| Stage | AWS Graviton 2 (t4g.small, 2 vCPU) | AMD Zen 5 desktop (6 cores) |
+| Stage | Full size | Half size (the console) |
 |---|---|---|
-| lens undistortion (`remap`, 1920×1440) | 23.0 ms | 2.8 ms |
-| `cvtColor` to grey | 0.8 ms | 0.4 ms |
-| `resize` (area) to 960 | 0.7 ms | 0.4 ms |
-| head detection (HSV, morphology, components) | 22.1 ms | 7.3 ms |
-| DIS optical flow (medium, 960×720) | 70.7 ms | 16.0 ms |
-| overlay `warpPerspective` | 1.6 ms | 0.2 ms |
-| `GaussianBlur` on the field grid | 0.1 ms | 0.1 ms |
-| `imencode` JPEG | 5.7 ms | 1.6 ms |
-| DM-Count, DNN `ENGINE_NEW`, 960×720 | 16,242.1 ms | 854.1 ms |
-| drift check, ALIKED + LightGlue, 640 | 3,127.7 ms | 692.3 ms |
-| **one camera-second of the console** | **716 ms (1.4 cameras in real time)** | **155 ms (6.4 cameras)** |
-| with DM-Count every 5 s | 3,965 ms | 326 ms |
+| reduce the frame (`resize`, area) | | 0.7 ms |
+| lens undistortion (`remap`) | 23.1 ms | 6.3 ms |
+| head detection (HSV, components) | 22.4 ms | 3.8 ms |
+| DIS optical flow (medium, 960×720) | 71.0 ms | 71.0 ms |
+| overlay `warpPerspective`, `imencode` JPEG | 1.7 ms, 3.7 ms | 1.7 ms, 3.7 ms |
+| ECC camera screen, every 3 s | | 228 ms |
+| **one camera-second** | **718 ms** | **528 ms (1.9 cameras in real time)** |
 
-The console's pipeline keeps up with one camera in real time on the smallest Graviton instance
-the account can run. The DM-Count network is about 19 times slower there than on the desktop,
-so on this instance it runs only as the occasional second counter, in its own process. A
-camera that needs DM-Count for every count needs a larger instance. Source:
-`bench/results/graviton2_t4g_small.json`, `bench/results/zen5_x86.json`, produced by
-`bench/bench_stages.py` with the console stopped.
+| DM-Count (SHA) on Graviton | `ENGINE_NEW` | `ENGINE_CLASSIC` |
+|---|---|---|
+| zone crop (576×720) | 9,482 ms | **1,728 ms** |
+| whole frame at 960×720 | 16,057 ms | 2,979 ms |
+
+On Graviton the classic DNN engine runs DM-Count 5.5 times faster than the new graph engine and
+returns the same count; on the AMD Zen 5 desktop the new engine is faster (6.9 s against 9.5 s
+for the whole frame at 1280 px on two threads). `density.DEFAULT_ENGINE` picks the engine by
+architecture. With the classic engine and the zone crop, one camera with DM-Count every 5 s needs
+873 ms per second on the t4g.small (3,965 ms before). In the live console, an agent's
+`cross_check_count` went from 75 s to under 6 s, and `check_camera` from 23 s to under 0.3 s.
 
 ### 6.9 The console
+
+axe-core (WCAG 2.1 AA and best practice) reports no violations on the console at 1600 px and 390 px
+wide, or on the evening report. The first audit found three problems: low contrast on the WARN
+badge (3.6:1) and the grey source lines (3.1:1), no level-one heading, and a scrolling record that
+a keyboard could not reach.
 
 `tools/ui_smoke.py` drives the real console in headless Chromium: knock the camera, wait for the
 untrusted tile and the recalibration request, restore, wait for a proposal on Zone C, approve,
@@ -284,6 +336,12 @@ whole inflow.
   the memory goes back to the system.
 - **Model.** gpt-oss-120b through the Amazon Bedrock API endpoint (OpenAI-compatible), with a
   short-lived bearer token minted from the instance role.
+- **One heavy model at a time.** ALIKED + LightGlue and DM-Count each run in a fresh child process
+  (`jobs.py` imports only OpenCV and the two model wrappers) behind a semaphore, so the two never
+  share the 2 GB of memory.
+- **Interfaces.** The console, the evening report at `/report`, and a read-only Model Context
+  Protocol endpoint at `/mcp` (Streamable HTTP, JSON responses, 120 calls a minute) whose tools
+  are the agent's own measurement tools. Approvals exist only in the console.
 - **Network and access.** Security group open on 80 and 443 only; no SSH key, administration
   through AWS Systems Manager. Caddy terminates TLS with a Let's Encrypt certificate for the
   sslip.io name of the Elastic IP and adds HSTS; the app sets `X-Content-Type-Options`,
@@ -317,7 +375,10 @@ whole inflow.
   faces, identities or video, and it does not track a person across cameras.
 - **A person decides.** The tier is computed from measurements; the model proposes; a steward
   approves. A camera that cannot be trusted stops counting until a person recalibrates it.
-- **Accountability.** Every proposal, decision and outcome is in a tamper-evident trace.
+- **Accountability.** Every proposal, decision and outcome is in a tamper-evident trace, and the
+  evening report states whether the chain re-hashes intact before it lists anything.
+- **Other agents read, people decide.** The MCP endpoint exposes measurements and forecasts only.
+  It has no tool that proposes, approves or changes the venue.
 - **Misuse.** The same numbers could be used to disperse a lawful gathering. The intended
   operator is venue safety staff working under a written purpose, and the catalogue of actions is
   set by the venue: gates, doors, stewards and announcements.

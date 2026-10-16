@@ -41,7 +41,7 @@
 
   <rect class="cv" x="270" y="84" width="390" height="210" rx="10"/>
   <text class="h" x="286" y="110">OpenCV 5 vision pipeline</text>
-  <text class="t" x="286" y="134">VideoCapture · remap (lens undistortion)</text>
+  <text class="t" x="286" y="134">VideoCapture · resize (area) · remap (lens)</text>
   <text class="t" x="286" y="154">head detection: cvtColor, inRange, morphology,</text>
   <text class="t" x="286" y="172">connectedComponentsWithStats</text>
   <text class="t" x="286" y="192">DIS optical flow · head-plane homography</text>
@@ -52,9 +52,9 @@
 
   <rect class="cv" x="680" y="84" width="230" height="100" rx="10"/>
   <text class="h" x="696" y="110">Camera watchdog</text>
-  <text class="t" x="696" y="132">ALIKED + LightGlue</text>
-  <text class="t" x="696" y="150">(features module)</text>
-  <text class="t" x="696" y="168">USAC MAGSAC, every 30 s</text>
+  <text class="t" x="696" y="132">ECC screen every 3 s</text>
+  <text class="t" x="696" y="150">then ALIKED + LightGlue</text>
+  <text class="t" x="696" y="168">(features module) to confirm</text>
 
   <rect class="cv" x="680" y="194" width="230" height="100" rx="10"/>
   <text class="h" x="696" y="220">Second counter</text>
@@ -75,8 +75,8 @@
   <rect class="box" x="490" y="430" width="420" height="100" rx="10"/>
   <text class="h" x="506" y="456">Agent episode</text>
   <text class="t" x="506" y="478">tools: get_zone_state, check_camera, cross_check_count,</text>
-  <text class="t" x="506" y="496">measure_exit_flow, forecast_action, propose_action,</text>
-  <text class="t" x="506" y="514">request_recalibration · guards refuse ungrounded output</text>
+  <text class="t" x="506" y="496">locate_pushing, measure_exit_flow, forecast_action,</text>
+  <text class="t" x="506" y="514">propose_action, request_recalibration · guards in code</text>
 
   <rect class="box" x="270" y="430" width="200" height="100" rx="10"/>
   <text class="h" x="286" y="456">Trace</text>
@@ -85,8 +85,8 @@
   <text class="t" x="286" y="514">decisions, verifications</text>
 
   <rect class="box" x="270" y="554" width="640" height="68" rx="10"/>
-  <text class="h" x="286" y="580">Steward console · FastAPI + Caddy (TLS, Let's Encrypt)</text>
-  <text class="t" x="286" y="602">zone tiles, camera overlay, venue plan, proposal with predicted effect, approve / reject, verify after 90 s</text>
+  <text class="h" x="286" y="580">Steward console · evening report · MCP (read-only) · FastAPI + Caddy</text>
+  <text class="t" x="286" y="602">zone tiles, camera overlay, proposal with evidence crop, approve / reject, verify after 90 s</text>
 
   <!-- AWS services -->
   <rect class="aws" x="970" y="430" width="210" height="100" rx="10"/>
