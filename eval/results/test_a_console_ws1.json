@@ -1,0 +1,61 @@
+{
+ "work_scale": 1.0,
+ "rows": 9260,
+ "pushing_share": 0.3383369330453564,
+ "auc_pressure": 0.7978967477987867,
+ "auc_density": 0.7859501025505928,
+ "auc_pressure_by_density_band": {
+  "0-2": {
+   "n": 1278,
+   "auc": 0.8616408697254468
+  },
+  "2-3": {
+   "n": 1927,
+   "auc": 0.844097701616178
+  },
+  "3-4": {
+   "n": 1739,
+   "auc": 0.7355710686542095
+  },
+  "4-5": {
+   "n": 1526,
+   "auc": 0.734036932047992
+  },
+  "5-9": {
+   "n": 2788,
+   "auc": 0.6859959135076671
+  }
+ },
+ "runs": {
+  "030": {
+   "samples": 324,
+   "seconds": 26.5,
+   "ms_per_camera_second": 408
+  },
+  "040": {
+   "samples": 331,
+   "seconds": 33.6,
+   "ms_per_camera_second": 508
+  },
+  "050": {
+   "samples": 188,
+   "seconds": 15.6,
+   "ms_per_camera_second": 416
+  },
+  "060": {
+   "samples": 203,
+   "seconds": 17.6,
+   "ms_per_camera_second": 434
+  },
+  "150": {
+   "samples": 287,
+   "seconds": 24.9,
+   "ms_per_camera_second": 434
+  },
+  "160": {
+   "samples": 278,
+   "seconds": 23.2,
+   "ms_per_camera_second": 417
+  }
+ }
+}

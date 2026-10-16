@@ -4,11 +4,12 @@
 
 Each stage runs on the same recorded frames (Jülich entrance run 150), with warm-up, and
 reports the median and p90 in milliseconds. The light stages, DM-Count and the drift check
-each run in their own process, so one model's memory never slows another. Two totals turn the
-work of one camera-second into cameras kept in real time per machine: the console's pipeline
-(5 field samples per second, overlay, JPEG), and the same with DM-Count every 5 s, as an
-oblique street camera would count. The drift check runs on its own schedule and is reported
-per call.
+each run in their own process, so one model's memory never slows another. DM-Count is timed on
+both OpenCV 5 DNN engines (ENGINE_NEW and ENGINE_CLASSIC). Three totals turn the work of one
+camera-second into cameras kept in real time per machine: the pipeline at full size, the
+console's pipeline at half size (5 field samples per second, overlay, JPEG, the ECC screen every
+3 s), and the same with DM-Count every 5 s on the faster engine, as an oblique street camera would
+count. The ALIKED + LightGlue check runs on its own schedule and is reported per call.
 """
 
 from __future__ import annotations
@@ -66,7 +67,8 @@ def main() -> None:
     sys.path.insert(0, str(ROOT / "src"))
     from breathingroom.datasets.fzj_camera import detect_caps, load
     from breathingroom.density import DensityModel
-    from breathingroom.drift import DriftWatch
+    from breathingroom.drift import DriftWatch, ShiftScreen
+    from breathingroom.runtime import CameraZone
 
     lens, runs = load(args.calib)
     cap = cv2.VideoCapture(args.video)
@@ -85,22 +87,37 @@ def main() -> None:
     heat = (np.random.default_rng(0).random((95, 70)) * 255).astype(np.uint8)
     g = args.group
     stages = {}
+    if g in ("light", "dmcount", "drift"):
+        cz = CameraZone(Path(args.video), Path(args.calib), "150")  # the console's own camera code
+        small = cv2.resize(a, cz.work_size, interpolation=cv2.INTER_AREA)
+        u_half, _ = cz.prepare(a)
     if g == "light":
         stages = {
+            # full size: the pipeline before the working scale
             "remap_undistort_1920x1440": lambda: cv2.remap(a, m1, m2, cv2.INTER_LINEAR),
             "cvtColor_bgr2gray_1920x1440": lambda: cv2.cvtColor(ua, cv2.COLOR_BGR2GRAY),
             "resize_area_to_960": lambda: cv2.resize(ua, (960, 720), interpolation=cv2.INTER_AREA),
-            "cvtColor_bgr2hsv_1920x1440": lambda: cv2.cvtColor(a, cv2.COLOR_BGR2HSV),
             "head_detection_hsv_morph_components": lambda: detect_caps(a),
+            # half size: what the console runs
+            "resize_area_frame_to_half": lambda: cv2.resize(a, cz.work_size, interpolation=cv2.INTER_AREA),
+            "remap_undistort_960x720": lambda: cv2.remap(small, cz.m1, cz.m2, cv2.INTER_LINEAR),
+            "head_detection_half": lambda: detect_caps(small, scale=0.5),
+            "cvtColor_bgr2gray_960x720": lambda: cv2.cvtColor(u_half, cv2.COLOR_BGR2GRAY),
             "dis_flow_medium_960x720": lambda: dis.calc(ga, gb, None),
             "warpPerspective_overlay_960x720": lambda: cv2.warpPerspective(heat, Hw, (960, 720)),
             "gaussianBlur_fields_100x100": lambda: cv2.GaussianBlur(np.ones((100, 100), np.float32), (0, 0), 5),
-            "jpeg_encode_960x720": lambda: cv2.imencode(".jpg", cv2.resize(ua, (960, 720)), [cv2.IMWRITE_JPEG_QUALITY, 80]),
+            "jpeg_encode_960x720": lambda: cv2.imencode(".jpg", u_half, [cv2.IMWRITE_JPEG_QUALITY, 80]),
         }
     elif g == "dmcount":
-        dm_new = DensityModel("sha", "new", max_side=960)
-        stages["dmcount_sha_dnn_new_960x720"] = lambda: dm_new(ua)
+        crop, mask = cz.count_crop(u_half)
+        for eng in ("new", "classic"):
+            dm = DensityModel("sha", eng, max_side=4096)
+            stages[f"dmcount_sha_{eng}_zone_crop"] = (lambda dm=dm: dm(crop, roi_mask=mask))
+            dmf = DensityModel("sha", eng, max_side=960)
+            stages[f"dmcount_sha_{eng}_960x720"] = (lambda dmf=dmf: dmf(ua))
     elif g == "drift":
+        sc = ShiftScreen(cz.screen_frames, cz.to_floor, cz.probe_px())
+        stages["camera_screen_ecc_480"] = lambda: sc.check(c)
         dw = DriftWatch(a, np.eye(3), np.array([[100.0, 100.0]]))
         stages["drift_check_aliked_lightglue_640"] = lambda: dw.check(c)
 
@@ -123,9 +140,12 @@ def main() -> None:
                         "--threads", str(args.threads), "--group", grp, "--video", args.video, "--calib", args.calib], check=True)
         res.update(json.loads(part.read_text()))
     m = {k: v["median_ms"] for k, v in res.items()}
-    console_ms = 5 * (2 * m["remap_undistort_1920x1440"] + 2 * (m["cvtColor_bgr2gray_1920x1440"] + m["resize_area_to_960"])
-                      + m["head_detection_hsv_morph_components"] + m["dis_flow_medium_960x720"])         + m["warpPerspective_overlay_960x720"] + m["jpeg_encode_960x720"]
-    counting_ms = console_ms + m["dmcount_sha_dnn_new_960x720"] / 5
+    full_ms = 5 * (2 * m["remap_undistort_1920x1440"] + 2 * (m["cvtColor_bgr2gray_1920x1440"] + m["resize_area_to_960"])
+                   + m["head_detection_hsv_morph_components"] + m["dis_flow_medium_960x720"])         + m["warpPerspective_overlay_960x720"] + m["jpeg_encode_960x720"]
+    console_ms = 5 * (2 * (m["resize_area_frame_to_half"] + m["remap_undistort_960x720"] + m["cvtColor_bgr2gray_960x720"])
+                      + m["head_detection_half"] + m["dis_flow_medium_960x720"])         + m["warpPerspective_overlay_960x720"] + m["jpeg_encode_960x720"] + m["camera_screen_ecc_480"] / 3
+    best_dm = min(m["dmcount_sha_new_zone_crop"], m["dmcount_sha_classic_zone_crop"])
+    counting_ms = console_ms + best_dm / 5
     out = {
         "label": args.label,
         "opencv_version": cv2.__version__,
@@ -136,12 +156,13 @@ def main() -> None:
         "instance_type": imds("instance-type"),
         "ami_id": imds("ami-id"),
         "stages": res,
-        "camera_second_ms": {"console": round(console_ms, 1), "with_dmcount_every_5s": round(counting_ms, 1)},
+        "camera_second_ms": {"console": round(console_ms, 1), "full_size_pipeline": round(full_ms, 1),
+                             "with_dmcount_every_5s": round(counting_ms, 1)},
         "cameras_realtime": {"console": round(1000 / console_ms, 2), "with_dmcount_every_5s": round(1000 / counting_ms, 2)},
     }
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(out, indent=2))
-    print(f"one camera-second: {console_ms:.0f} ms ({out['cameras_realtime']['console']} cameras in real time); "
+    print(f"full-size pipeline: {full_ms:.0f} ms; one camera-second: {console_ms:.0f} ms ({out['cameras_realtime']['console']} cameras in real time); "
           f"with DM-Count every 5 s: {counting_ms:.0f} ms ({out['cameras_realtime']['with_dmcount_every_5s']})")
 
 

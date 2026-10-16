@@ -8,10 +8,13 @@ gpt-oss-120b on the Bedrock API endpoint, `--repeats` times:
   e1_pushing       Entrance E1 replay with pushing while the density falls
   model_down       twin_filling with an unreachable model endpoint
 
+Each episode starts with the reasons the tier policy gives for the zone's measured state.
+
 Scored per episode: finished with a decision; the correct kind of decision (a proposal for
 crowd states, a recalibration request for the knocked camera); a proposal cites a forecast of
 its own episode; the chosen action's predicted peak is within 0.1/m2 of the lowest compared;
-camera checked before proposing; refused tool calls (guards that fired); steps and seconds.
+camera checked before proposing; for pushing, whether the agent located it and whether the
+radio message says where; refused tool calls (guards that fired); steps and seconds.
 
     AWS_PROFILE=otl-agent python eval/test_c_agent.py --repeats 5
 """
@@ -31,7 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 os.environ.setdefault("BR_ISOLATE_MODELS", "1")  # each repeat builds a camera zone: keep the models out of this process
 from breathingroom import agent as ag  # noqa: E402
-from breathingroom.policy import Tier  # noqa: E402
+from breathingroom.policy import Tier, ZoneReading  # noqa: E402
 from breathingroom.runtime import CATALOGUE, CameraZone, Runtime  # noqa: E402
 from breathingroom.trace import Trace  # noqa: E402
 
@@ -60,6 +63,7 @@ def camera_runtime(trace: Trace, knocked: bool) -> Runtime:
     cam.bumped = knocked
     if knocked:
         cam.tick(1.0)
+        cam.check_camera()  # the watchdog's screen finds the knock before the episode starts
     cam.state.tier = "WARN"
     return rt
 
@@ -82,6 +86,12 @@ def score(ep: ag.Episode, expect: str) -> dict:
         out["action"] = f"{p.action['kind']}:{p.action['target']}"
         out["radio"] = p.radio
         out["compared"] = len(peaks)
+    loc = [h for c in ep.calls if c["tool"] == "locate_pushing" for h in (c["result"].get("hotspots") or [])]
+    out["located_pushing"] = bool(loc)
+    if loc and ep.proposal:
+        r = ep.proposal.radio.lower()
+        out["radio_says_where"] = any(h["side"] in r or f"{h['metres_before_gate']:g}" in r for h in loc)
+        out["evidence_images"] = len(ep.proposal.evidence_images)
     return out
 
 
@@ -90,8 +100,13 @@ def run(name: str, make, expect: str, repeats: int, trace: Trace, model_down: bo
     for i in range(repeats):
         rt = make()
         zone = CameraZone.name if rt.camera is not None else rt.twin.name
-        ep = ag.Episode(zone, Tier.WARN, [f"test scenario {name}"], rt.tools_for(zone), CATALOGUE, trace,
-                        clock=lambda: 0.0)
+        z = rt.zones()[zone]
+        fc = z.forecast()
+        mins = None if fc.seconds_to_threshold is None else fc.seconds_to_threshold / 60
+        d = rt.policy.decide(ZoneReading(zone, z.state.t, z.state.rho, z.state.pressure, mins, z.state.trusted,
+                                         z.state.trust_reason, z.state.rho_peak))
+        reasons = (d.reasons or [f"test scenario {name}"]) if z.state.trusted else [z.state.trust_reason or "camera check failed"]
+        ep = ag.Episode(zone, max(d.tier, Tier.WARN), reasons, rt.tools_for(zone), CATALOGUE, trace, clock=lambda: 0.0)
         t0 = time.perf_counter()
         if model_down:
             saved = ag.MANTLE_URL
@@ -136,6 +151,8 @@ def main() -> None:
             "median_steps": float(np.median([r["steps"] for r in rs])),
             "median_seconds": float(np.median([r["seconds"] for r in rs])),
             "actions": sorted({r.get("action", "") for r in props}),
+            "located_pushing": sum(r.get("located_pushing", False) for r in rs),
+            "radio_says_where": sum(r.get("radio_says_where", False) for r in props),
         }
     (OUT / "test_c_agent.json").write_text(json.dumps({"model": ag.MODEL_ID, "summary": summary, "episodes": rows}, indent=1))
     print(json.dumps(summary, indent=1))
