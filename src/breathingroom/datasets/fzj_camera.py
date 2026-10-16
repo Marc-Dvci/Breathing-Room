@@ -12,14 +12,23 @@ import cv2
 import numpy as np
 
 
-def detect_caps(bgr: np.ndarray) -> np.ndarray:
-    """Centroids (px) of the orange caps every participant wears."""
+def detect_caps(bgr: np.ndarray, scale: float = 1.0) -> np.ndarray:
+    """Centroids (px) of the orange caps every participant wears. `scale` is the image's size
+    relative to the original video (0.5 for a half-size frame); sizes are scaled with it."""
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
     m = cv2.inRange(hsv, (3, 140, 120), (20, 255, 255))
-    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+    if scale >= 0.75:  # at half size an opening erodes the smallest caps; the area test removes specks
+        m = cv2.morphologyEx(m, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
     n, _, stats, cent = cv2.connectedComponentsWithStats(m)
-    keep = (stats[1:, cv2.CC_STAT_AREA] > 150) & (stats[1:, cv2.CC_STAT_AREA] < 6000)
+    area = stats[1:, cv2.CC_STAT_AREA]
+    keep = (area > 150 * scale**2) & (area < 6000 * scale**2)
     return cent[1:][keep]
+
+
+def scaled_k(K: np.ndarray, scale: float) -> np.ndarray:
+    """A camera matrix for the image resized by `scale` with area averaging (pixel centres move)."""
+    S = np.array([[scale, 0, 0.5 * scale - 0.5], [0, scale, 0.5 * scale - 0.5], [0, 0, 1]])
+    return S @ K
 
 
 class Lens:

@@ -15,14 +15,16 @@ from __future__ import annotations
 import os
 import threading
 import time
+from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from .runtime import ROOT, CameraZone, Runtime
+from . import mcp, report
+from .runtime import CATALOGUE, ROOT, CameraZone, Runtime
 from .trace import verify
 
 WEB = Path(__file__).parent / "web"
@@ -32,6 +34,8 @@ TRACE = Path(os.environ.get("BR_TRACE", ROOT / "var" / "trace.jsonl"))
 PIN = os.environ.get("BR_STEWARD_PIN", "")
 
 state: dict = {}
+MCP_CALLS_PER_MIN = 120  # the endpoint is public and the instance is small
+_mcp_times: deque = deque(maxlen=MCP_CALLS_PER_MIN)
 
 
 def build_runtime() -> Runtime:
@@ -78,6 +82,11 @@ def index():
     return FileResponse(WEB / "index.html")
 
 
+@app.get("/report")
+def evening_report(all: int = 0):
+    return HTMLResponse(report.render(state["rt"].trace.path, everything=bool(all)), headers={"Cache-Control": "no-store"})
+
+
 @app.get("/health")
 def health():
     rt: Runtime = state["rt"]
@@ -97,6 +106,15 @@ def camera_jpg():
     if rt.camera is None or rt.camera.jpeg() is None:
         raise HTTPException(404, "no camera frame yet")
     return Response(rt.camera.jpeg(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/evidence/{eid}.jpg")
+def evidence_jpg(eid: str):
+    rt: Runtime = state["rt"]
+    img = rt.camera.evidence.get(eid) if rt.camera is not None else None
+    if img is None:
+        raise HTTPException(404, "evidence image not kept")
+    return Response(img, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
 
 
 def _pin_ok(body: dict) -> None:
@@ -140,6 +158,32 @@ def demo(action: str):
         rt.speed = 1.0 if action == "speed1" else 4.0
         return {"ok": True, "speed": rt.speed}
     raise HTTPException(404)
+
+
+@app.post("/mcp")
+async def mcp_endpoint(request: Request):
+    """Model Context Protocol, Streamable HTTP transport with JSON responses (read-only tools)."""
+    now = time.time()
+    if len(_mcp_times) == MCP_CALLS_PER_MIN and now - _mcp_times[0] < 60:
+        return JSONResponse({"jsonrpc": "2.0", "id": None, "error": {"code": -32000, "message": "rate limited"}}, 429,
+                            headers={"Retry-After": "10"})
+    _mcp_times.append(now)
+    try:
+        msg = await request.json()
+    except ValueError:
+        return JSONResponse({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}, 400)
+    rt: Runtime = state["rt"]
+    rt.viewed()
+    if isinstance(msg, list):
+        out = [r for r in (mcp.handle(rt, CATALOGUE, m, rt.trace) for m in msg if isinstance(m, dict)) if r is not None]
+        return JSONResponse(out) if out else Response(status_code=202)
+    out = mcp.handle(rt, CATALOGUE, msg, rt.trace) if isinstance(msg, dict) else None
+    return JSONResponse(out) if out is not None else Response(status_code=202)
+
+
+@app.get("/mcp")
+def mcp_get():
+    return Response(status_code=405, headers={"Allow": "POST"})
 
 
 @app.get("/api/trace")

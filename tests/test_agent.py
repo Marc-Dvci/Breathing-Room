@@ -97,3 +97,17 @@ def test_guard_refuses_a_more_disruptive_action_when_a_gentler_one_is_as_good(tm
     out = ep.call("propose_action", {"zone": "Zone C", "forecast_id": hold["forecast_id"], "radio_message": "Zone C. Hold gates.",
                                      "rationale": "r"})
     assert "error" in out and meter["forecast_id"] in out["error"]
+
+
+def test_no_action_is_refused_while_the_zone_is_filling(tmp_path):
+    from breathingroom.agent import Episode as Ep
+    from breathingroom.runtime import CATALOGUE, Runtime
+
+    rt = Runtime(tmp_path / "t.jsonl", use_model=False, camera=None, seed=1, twin_warmup_s=60)
+    zone = rt.twin.name
+    tools = rt.tools_for(zone)
+    tools["get_zone_state"] = lambda zone: {"zone": zone, "density": 0.5, "minutes_to_4_5": 9.1}
+    ep = Ep(zone, Tier.WARN, ["9.1 min to 4.5/m2"], tools, CATALOGUE, Trace(tmp_path / "e.jsonl"), clock=lambda: 0.0)
+    ep.call("get_zone_state", {"zone": zone})
+    out = ep.call("no_action", {"reason": "density low"})
+    assert "error" in out and not ep.done

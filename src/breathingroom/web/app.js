@@ -10,7 +10,11 @@ function fmtClock(t) {
 }
 function esc(x) { return String(x ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
 
-function pushingWord(p) { if (p >= 0.18) return "strong pushing"; if (p >= 0.11) return "pushing"; if (p >= 0.06) return "restless"; return "calm"; }
+// the tier policy counts pushing only where the crowd reaches 2 people per m2 (zone mean or densest spot)
+function pushingWord(p, rho) {
+  if (p >= 0.11 && rho < 2.0) return "uneven motion, sparse crowd";
+  if (p >= 0.18) return "strong pushing"; if (p >= 0.11) return "pushing"; if (p >= 0.06) return "restless"; return "calm";
+}
 
 function renderTiles(zones) {
   const el = $("#tiles");
@@ -23,8 +27,8 @@ function renderTiles(zones) {
       <span class="tier" aria-label="alert tier ${z.tier}">${TIER_SHAPE[z.tier] || ""} ${z.tier}</span>
       <div class="big">${z.rho.toFixed(1)}<small>people / m²</small></div>
       <div class="count"><div class="mins">${mins}</div><div class="lbl">${filling ? "min to 4.5 / m² at this inflow" : "not filling"}</div></div>
-      <div class="facts"><span>Level <b>${z.los}</b></span><span><b>${pushingWord(z.pressure)}</b> (pushing index ${z.pressure.toFixed(3)} /s²)</span>
-        <span><b>${Math.round(z.n)}</b> people on ${z.area_m2.toFixed(0)} m²</span>${z.trusted ? "" : `<span><b>camera not trusted</b></span>`}</div>
+      <div class="facts"><span>Level <b>${z.los}</b></span><span><b>${pushingWord(z.pressure, Math.max(z.rho, z.rho_peak ?? 0))}</b> (pushing index ${z.pressure.toFixed(3)} /s²)</span>
+        <span><b>${Math.round(z.n)}</b> people on ${z.area_m2.toFixed(0)} m²</span>${z.rho_peak != null ? `<span>densest spot <b>${z.rho_peak.toFixed(1)}</b> /m²</span>` : ""}${z.trusted ? "" : `<span><b>camera not trusted</b></span>`}</div>
       <div class="why">${esc(z.trusted ? why : z.trust_reason)}</div>
       <div class="src">${esc(z.source || "")}</div>
     </article>`;
@@ -129,6 +133,10 @@ function actionLabel(a) {
 }
 
 function proposalCard(p) {
+  if (p.status === "expired") {
+    return `<div class="prop compact" data-zone="${esc(p.zone)}"><div class="kicker"><span>${esc(p.zone)} · ${esc(p.tier)}</span><span>expired</span></div>
+      <div class="small-muted">“${esc(p.radio)}” · no decision within 4 minutes; the assistant proposes again if the zone still needs it.</div></div>`;
+  }
   const alts = (p.alternatives || []).slice().sort((a, b) => a.peak - b.peak);
   const none = alts.find((a) => a.kind === "none");
   const v = p.verify || {};
@@ -150,6 +158,7 @@ function proposalCard(p) {
     <table><thead><tr><th>Action compared</th><th title="predicted peak density in 10 minutes, people/m²">Peak</th><th title="how far the twin's peak exceeded this forecast, on average, in testing">Tested error</th><th>Min to 4.5</th></tr></thead><tbody>
       ${alts.map((a) => `<tr class="${a.forecast_id === p.forecast_id ? "chosen" : ""}"><td>${esc(actionLabel(a))}</td><td>${a.peak.toFixed(1)}</td><td>${a.forecast_error != null ? "+" + a.forecast_error.toFixed(1) : "–"}</td><td>${a.minutes_to_threshold ?? "–"}</td></tr>`).join("")}
     </tbody></table>
+    ${(p.evidence_images || []).length ? `<div class="evidence">${p.evidence_images.map((e) => `<figure><img src="/api/evidence/${esc(e.id)}.jpg" alt="Camera crop where pushing was located: ${esc(e.side)} side, ${esc(e.metres_before_gate)} m before the gate" loading="lazy"><figcaption>Pushing located: ${esc(e.side)} side, ${esc(e.metres_before_gate)} m before the gate (index ${esc(e.peak_pushing_index)} /s²)</figcaption></figure>`).join("")}</div>` : ""}
     <div class="why">${esc(p.rationale)}</div>
     ${p.replay ? `<div class="note">This zone is a recording. Approving records the decision; the footage cannot change.</div>` : ""}
     ${p.status === "pending" ? `<div class="buttons"><button class="approve" data-id="${p.id}" data-v="approve">Approve</button><button class="reject" data-id="${p.id}" data-v="reject">Reject</button></div>` : status}
@@ -185,7 +194,15 @@ function summarise(c) {
   if (r.error) return `refused: ${r.error}`;
   switch (c.tool) {
     case "get_zone_state": return `${r.density}/m², level ${r.level_of_service}, trend ${r.trend_per_min}/min`;
-    case "check_camera": return r.trusted ? `camera steady (${r.floor_shift_m ?? 0} m${r.matches ? `, ${r.inliers}/${r.matches} LightGlue matches` : ""})` : `camera moved ${r.floor_shift_m} m`;
+    case "check_camera": {
+      if (r.note && !r.screen) return r.note;
+      const how = r.escalated ? `ECC screen ${r.screen ? r.screen.verdict : ""}, confirmed by ALIKED + LightGlue${r.matches ? ` (${r.inliers}/${r.matches} matches)` : ""}` : `ECC screen, correlation ${r.screen ? r.screen.correlation : ""}`;
+      return r.trusted ? `camera steady, ${r.floor_shift_m ?? 0} m shift · ${how}` : `camera moved ${r.floor_shift_m ?? "?"} m · ${how}`;
+    }
+    case "locate_pushing": {
+      const h = r.hotspots || [];
+      return h.length ? h.map((x) => `${x.side} side, ${x.metres_before_gate} m before the gate, ${x.area_m2} m² at ${x.density}/m²`).join("; ") : (r.note && r.note.startsWith("simulated") ? r.note : "no concentrated pushing");
+    }
     case "cross_check_count": return `${r.count_primary} vs ${r.count_second} · ${r.agree ? "agree" : "disagree"}`;
     case "measure_exit_flow": return `outflow ${r.outflow_per_min}/min of ${r.exit_capacity_per_min}/min capacity`;
     case "forecast_action": return `${r.action}: peak ${r.peak_density_10min}/m²${r.minutes_to_threshold != null ? `, ${r.minutes_to_threshold} min to ${r.threshold}` : ""}`;
@@ -208,7 +225,7 @@ function renderSteps(snap) {
 async function renderLog() {
   try {
     const r = await fetch("/api/trace?n=40"); const t = await r.json();
-    $("#log").innerHTML = t.reverse().filter((e) => e.kind !== "tool_call").map((e) => {
+    $("#log").innerHTML = t.reverse().filter((e) => e.kind !== "tool_call" && e.kind !== "mcp_call").map((e) => {
       const time = new Date(e.ts * 1000).toLocaleTimeString();
       let msg = "";
       if (e.kind === "tier") msg = `${e.zone} → ${e.tier} (${(e.reasons || []).join("; ")})`;
@@ -216,6 +233,10 @@ async function renderLog() {
       else if (e.kind === "decision") msg = `${e.approved ? "approved" : "rejected"} ${e.proposal} ${e.applied ? "· " + e.applied : ""}`;
       else if (e.kind === "verify") msg = `${e.zone}: ${e.outcome} (measured ${e.observed_rho}, predicted ${e.predicted_rho})`;
       else if (e.kind === "agent_start") msg = `assistant investigates ${e.zone} (${e.planner}${e.model ? ", " + e.model : ""})`;
+      else if (e.kind === "agent_end") msg = `investigation ends: ${e.proposal ? "proposal " + e.proposal : e.recalibration ? "recalibration requested" : "closed: " + (e.closed || "")}`;
+      else if (e.kind === "drift") msg = `${e.zone}: camera ${e.trusted ? "trusted again" : "not trusted: " + (e.reason || "")}`;
+      else if (e.kind === "drift_screen") msg = `${e.zone}: ECC screen ${e.screen.verdict}, ${e.confirmed} says ${e.trusted ? "steady" : "moved"}`;
+      else if (e.kind === "error") msg = `${e.where}: ${e.error}`;
       else if (e.kind === "agent_fallback") msg = `model unavailable, deterministic planner: ${e.reason}`;
       else if (e.kind === "expired") msg = `${e.zone}: proposal ${e.proposal} expired without a decision`;
       else if (e.kind === "scenario") msg = `${e.zone}: ${e.event}`;

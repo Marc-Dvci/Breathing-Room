@@ -57,6 +57,7 @@ class Proposal:
     verify: dict = field(default_factory=dict)
     replay: bool = False  # the zone is a recording: approving records the decision only
     predicted_at_proposal: dict = field(default_factory=dict)  # set when approval re-forecasts
+    evidence_images: list[dict] = field(default_factory=list)  # camera crops from locate_pushing
 
     def to_json(self) -> dict:
         return asdict(self)
@@ -96,7 +97,11 @@ Rules:
    get_zone_state, the zone as it is now; never take them from an action's forecast. When
    minutes_to_4_5 is null the zone is not filling: say so, and never write "0 minutes". When
    the pushing index is at or above the alert threshold, say that pushing is detected.
-6. You never approve anything yourself. A steward decides."""
+6. When the zone is flagged for pushing, call locate_pushing before choosing an action. If it
+   finds a hotspot, the action goes to that spot: a steward or an announcement, and the radio
+   message says where (the side and the metres before the gate). If it finds no hotspot, the
+   pushing is not concentrated anywhere: say so, and decide from the density and the trend.
+7. You never approve anything yourself. A steward decides."""
 
 
 def tool_specs(catalogue_actions: list[str]) -> list[dict]:
@@ -106,9 +111,13 @@ def tool_specs(catalogue_actions: list[str]) -> list[dict]:
     return [
         fn("get_zone_state", "Current measured state of a zone: density, pushing index, trend, inflow, outflow.",
            {"zone": {"type": "string"}}, ["zone"]),
-        fn("check_camera", "Check that the camera has not moved since calibration (ALIKED + LightGlue against the reference frame).",
+        fn("check_camera", "Check that the camera has not moved since calibration: a fast ECC alignment against the "
+           "calibration frame, confirmed with ALIKED + LightGlue feature matching when the fast check is not steady.",
            {"camera": {"type": "string"}}, ["camera"]),
         fn("cross_check_count", "Count the zone again with a second, independent counting model and report agreement.",
+           {"zone": {"type": "string"}}, ["zone"]),
+        fn("locate_pushing", "Find where in the zone people are pushing: regions above the pushing alert threshold, "
+           "with their size, peak index, density, side and distance before the gate, and a camera crop for the steward.",
            {"zone": {"type": "string"}}, ["zone"]),
         fn("measure_exit_flow", "Measured flow through the zone's exits over the last 30 s, with capacity.",
            {"zone": {"type": "string"}}, ["zone"]),
@@ -159,8 +168,12 @@ class Episode:
                 self.recalibration = {"camera": args.get("camera", ""), "reason": args.get("reason", "")}
                 out = {"ok": True, "message": "recalibration requested from the control room"}
             elif name == "no_action":
-                self.closed_reason = args.get("reason", "")
-                out = {"ok": True}
+                refused = self._no_action_refusal()
+                if refused:
+                    out = {"error": refused}
+                else:
+                    self.closed_reason = args.get("reason", "")
+                    out = {"ok": True}
             elif name in self.tools:
                 out = self.tools[name](**args)
             else:
@@ -174,6 +187,18 @@ class Episode:
         self.calls.append(rec)
         self.trace.write("tool_call", **rec)
         return out
+
+    def _no_action_refusal(self) -> str:
+        """A zone that its own state says will reach 4.5/m2 within 10 minutes cannot be closed
+        without action, unless a no-action forecast in this episode says it stays below."""
+        states = [c["result"] for c in self.calls if c["tool"] == "get_zone_state" and isinstance(c["result"], dict)]
+        mins = states[-1].get("minutes_to_4_5") if states else None
+        if mins is None or mins > 10:
+            return ""
+        if any(v["kind"] == "none" and self.forecasts[k].peak_rho < 4.5 for k, v in self.forecast_actions.items()):
+            return ""
+        return (f"get_zone_state reports {mins} minutes to 4.5/m2 at the current inflow; an action's forecast is not the "
+                "zone's future. Propose the action that keeps the peak lowest, or forecast kind none to show the zone stays below 4.5")
 
     def _forecast(self, a: dict) -> dict:
         zone = a.get("zone", self.zone)
@@ -234,13 +259,17 @@ class Episode:
                  "minutes_to_threshold": None if f.seconds_to_threshold is None else round(f.seconds_to_threshold / 60, 1)}
                 for k, f in self.forecasts.items()]
         evidence = [c["tool"] for c in self.calls]
+        images = [{"id": h["evidence_image"], "side": h.get("side"), "metres_before_gate": h.get("metres_before_gate"),
+                   "peak_pushing_index": h.get("peak_pushing_index")}
+                  for c in self.calls if c["tool"] == "locate_pushing"
+                  for h in (c["result"].get("hotspots") or [])[:2] if h.get("evidence_image")]
         self.proposal = Proposal(
             id="pr_" + uuid.uuid4().hex[:10], zone=a.get("zone", self.zone), tier=self.tier.name, action=act,
             forecast_id=fid, predicted={"peak_density": round(fc.peak_rho, 2), "curve_t": fc.curve_t,
                                         "curve_rho": [round(x, 3) for x in fc.curve_rho],
                                         "minutes_to_threshold": None if fc.seconds_to_threshold is None else round(fc.seconds_to_threshold / 60, 1)},
             alternatives=alts, radio=radio, rationale=(a.get("rationale") or "").strip(), evidence=evidence,
-            created_t=self.clock(), planner=self.planner)
+            created_t=self.clock(), planner=self.planner, evidence_images=images[-2:])
         return {"ok": True, "proposal_id": self.proposal.id, "message": "sent to the steward for approval"}
 
     def _ranked(self, fid: str) -> float:
@@ -342,6 +371,10 @@ def run_deterministic(ep: Episode) -> Episode:
             ep.trace.write("agent_end", episode=ep.id, planner="deterministic", recalibration=ep.recalibration)
             return ep
     ep.call("cross_check_count", {"zone": ep.zone})
+    spot = None
+    if any("pushing" in r for r in ep.reasons):
+        hs = ep.call("locate_pushing", {"zone": ep.zone}).get("hotspots") or []
+        spot = hs[0] if hs else None
     ep.call("measure_exit_flow", {"zone": ep.zone})
     results = []
     for a in acts:
@@ -362,6 +395,7 @@ def run_deterministic(ep: Episode) -> Episode:
     rho = state.get("density", best["density_now"])
     radio = (f"{ep.zone}: {rho:.1f} per square metre"
              + (f", about {mins:.0f} minutes to 4.5" if mins is not None else ", not filling")
+             + (f", pushing {spot['side']} side {spot['metres_before_gate']:.1f} m before the gate" if spot else "")
              + f". Proposed: {best['action']}.")
     ep.call("propose_action", {"zone": ep.zone, "forecast_id": best["forecast_id"], "radio_message": radio,
                                "rationale": f"lowest predicted peak with its measured forecast error ({results[0][0]}/m2) "

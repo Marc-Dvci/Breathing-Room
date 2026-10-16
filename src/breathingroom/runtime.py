@@ -30,9 +30,11 @@ import cv2
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
+from . import jobs
 from . import twin as tw
 from .agent import Episode, Proposal, VenueCatalogue, investigate
 from .calib import FloorGrid
+from .density import DEFAULT_ENGINE
 from .fields import FieldBuilder, KERNEL_R
 from .flow import Flow
 
@@ -46,31 +48,33 @@ TWIN_WARMUP_S = float(os.environ.get("BR_TWIN_WARMUP_S", "90"))  # skip the quie
 TWIN_CYCLE_S = float(os.environ.get("BR_TWIN_CYCLE_S", "900"))  # the evening restarts after this, when idle
 PROPOSAL_TTL_S = 240.0  # a proposal nobody decided on goes stale: the crowd has moved on
 IDLE_PAUSE_S = float(os.environ.get("BR_IDLE_PAUSE_S", "0"))  # >0: pause when no console has polled for this long
-DRIFT_EVERY_S = float(os.environ.get("BR_DRIFT_EVERY_S", "15"))  # watchdog period
+SCREEN_EVERY_S = float(os.environ.get("BR_SCREEN_EVERY_S", "3"))  # ECC screen period
+CONFIRM_EVERY_S = float(os.environ.get("BR_CONFIRM_EVERY_S", "600"))  # ALIKED + LightGlue even when the screen is steady
 # ALIKED + LightGlue need about 1.6 GB while they run and DM-Count about 0.7 GB. On a small
 # instance each call runs in a fresh child process, so the memory goes back to the system.
 ISOLATE_MODELS = os.environ.get("BR_ISOLATE_MODELS", "0") == "1"
+WORK_SCALE = float(os.environ.get("BR_WORK_SCALE", "0.5"))  # camera frames are processed at this fraction of full size
+# One heavy model at a time: two at once do not fit in 2 GB and push the instance into swap.
+HEAVY = threading.Semaphore(1)
+# The second counter sees only the zone's bounding box, at half the undistorted resolution.
+COUNT_SCALE = 0.5
 
 
-def _drift_job(ref, live, lens_x, H_u2w, probe) -> dict:
-    """Child-process drift check (BR_ISOLATE_MODELS=1)."""
-    from .datasets.fzj_camera import Lens
-    from .drift import DriftWatch
-
-    lens = Lens(lens_x)
-
-    def to_floor(px):
-        return cv2.perspectiveTransform(lens.undistort(px).reshape(-1, 1, 2), H_u2w).reshape(-1, 2)
-
-    return DriftWatch(ref, to_floor, probe).check(live).to_json()
-
-
-def _count_job(und, mask) -> tuple[float, float]:
-    """Child-process DM-Count (BR_ISOLATE_MODELS=1)."""
-    from .density import DensityModel
-
-    r = DensityModel("sha", "new", max_side=1280)(und, roi_mask=mask)
-    return r.count, r.seconds
+def zone_crop(und: np.ndarray, H_w2u: np.ndarray, rect: tuple, scale: float = COUNT_SCALE):
+    """The zone's bounding box in the undistorted image, resized by `scale`, and the zone's
+    polygon as a mask over it. The second counter runs on this crop only."""
+    x0, x1, y0, y1 = rect
+    poly = cv2.perspectiveTransform(np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], float).reshape(-1, 1, 2),
+                                    H_w2u).reshape(-1, 2)
+    h, w = und.shape[:2]
+    bx0, by0 = np.clip(np.floor(poly.min(0)).astype(int), 0, [w, h])
+    bx1, by1 = np.clip(np.ceil(poly.max(0)).astype(int), 0, [w, h])
+    crop = und[by0:by1, bx0:bx1]
+    mask = np.zeros(crop.shape[:2], np.uint8)
+    cv2.fillPoly(mask, [np.round(poly - [bx0, by0]).astype(np.int32)], 1)
+    size = (max(16, int(round(crop.shape[1] * scale / 16)) * 16), max(16, int(round(crop.shape[0] * scale / 16)) * 16))
+    return (cv2.resize(crop, size, interpolation=cv2.INTER_AREA),
+            cv2.resize(mask, size, interpolation=cv2.INTER_NEAREST))
 
 
 def _isolated(fn, *args):
@@ -78,14 +82,15 @@ def _isolated(fn, *args):
     import multiprocessing as mp
     from concurrent.futures import ProcessPoolExecutor
 
-    with ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context("spawn")) as pool:
+    with HEAVY, ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context("spawn")) as pool:
         return pool.submit(fn, *args).result(timeout=180)
 
-# DM-Count count / head count inside the E1 zone, over 809 frames of the six calibrated
-# Jülich runs (eval/results/test_a_meta.json): 2.5th percentile 0.27, 97.5th 0.99. DM-Count
-# undercounts on this overhead view; a ratio outside the band means one of the two counters
-# is not seeing the crowd (occlusion, lighting, a moved camera).
-E1_COUNT_RATIO_BAND = (0.25, 1.0)
+# DM-Count count / head count inside the E1 zone, as `cross_check_count` computes them, over 398
+# frames of the six calibrated Jülich runs (eval/results/test_e1_count_band.json): 2.5th
+# percentile 0.22, 97.5th 0.79, r = 0.91. DM-Count undercounts on this overhead view; a ratio
+# outside the band means one of the two counters is not seeing the crowd (occlusion, lighting,
+# a moved camera).
+E1_COUNT_RATIO_BAND = (0.22, 0.79)
 
 
 def helbing_points(pos: np.ndarray, vel: np.ndarray, R: float = KERNEL_R) -> tuple[np.ndarray, np.ndarray]:
@@ -105,6 +110,7 @@ class ZoneState:
     zone: str
     t: float = 0.0
     rho: float = 0.0
+    rho_peak: float | None = None  # densest spot in the zone (camera zones), people/m^2
     pressure: float = 0.0
     los: str = "A"
     n: float = 0.0
@@ -135,7 +141,8 @@ class ZoneState:
 
     def to_json(self, history: int = 600) -> dict:
         return {
-            "zone": self.zone, "t": self.t, "rho": round(self.rho, 2), "pressure": round(self.pressure, 4),
+            "zone": self.zone, "t": self.t, "rho": round(self.rho, 2),
+            "rho_peak": None if self.rho_peak is None else round(self.rho_peak, 1), "pressure": round(self.pressure, 4),
             "los": self.los, "n": round(self.n, 1), "area_m2": self.area_m2, "outflow_pps": round(self.outflow_pps, 2),
             "minutes_to_act": None if self.minutes_to_act is None else round(self.minutes_to_act, 1),
             "trusted": self.trusted, "trust_reason": self.trust_reason, "tier": self.tier, "reasons": self.reasons,
@@ -270,8 +277,10 @@ class CameraZone:
 
     name = "Entrance E1"
     exit_width_m = 0.5  # the Jülich entrance gate
+    zone_rect_default = (-2.8, 2.8, -1.8, 2.2)  # 5.6 m x 4 m in front of the entrance (x0, x1, y0, y1)
 
-    def __init__(self, video: Path, calib_json: Path, run: str, camera_name: str = "cam-E1", state_lock=None):
+    def __init__(self, video: Path, calib_json: Path, run: str, camera_name: str = "cam-E1", state_lock=None,
+                 work_scale: float = WORK_SCALE, grid: tuple | None = None):
         from .datasets import fzj_camera as fc  # lens + homography recovered for the Jülich camera
 
         self.fc = fc
@@ -283,13 +292,20 @@ class CameraZone:
         self.reader = ReplayReader(video)
         self.W, self.H, self.n_frames = self.reader.width, self.reader.height, self.reader.n_frames
         self.fps = self.reader.fps
-        self.m1, self.m2 = cv2.initUndistortRectifyMap(lens.K, lens.D, None, lens.Kn, (self.W, self.H), cv2.CV_16SC2)
+        # Frames are reduced once with area averaging, then undistorted and searched for heads at
+        # that size; DIS flow runs at 960 px wide either way. Heads are returned in full-size
+        # undistorted pixels, which is what the homography expects.
+        self.ws = work_scale
+        self.work_size = (int(round(self.W * work_scale)), int(round(self.H * work_scale)))
+        self.S = fc.scaled_k(np.eye(3), work_scale)  # full-size undistorted px -> working px
+        self.m1, self.m2 = cv2.initUndistortRectifyMap(fc.scaled_k(lens.K, work_scale), lens.D, None,
+                                                       fc.scaled_k(lens.Kn, work_scale), self.work_size, cv2.CV_16SC2)
         self.flow = Flow("medium", 960)
         self.camera_name = camera_name
         # floor grid over the area in front of the gate (run frame of reference, head plane)
-        self.grid = FloorGrid(-3.5, -2.5, 3.5, 7.0, cell=0.1)
+        self.grid = FloorGrid(*(grid or (-3.5, -2.5, 3.5, 7.0)), cell=0.1)
         self.builder = FieldBuilder(self.grid, self.H_u2w, (self.W, self.H))
-        self.zone_rect = (-2.8, 2.8, -1.8, 2.2)  # 5.6 m x 4 m in front of the entrance
+        self.zone_rect = self.zone_rect_default
         self.area = (self.zone_rect[1] - self.zone_rect[0]) * (self.zone_rect[3] - self.zone_rect[2])
         # people leave through the gate at y = -1.8 m; heads are counted across a line 0.4 m before it
         self.gate_line = Line("entrance gate", (-0.9, -1.4), (1.3, -1.4))
@@ -312,6 +328,18 @@ class CameraZone:
         self.timing = deque(maxlen=50)
         self.loops = 0
         self.last_drift: dict | None = None
+        self.last_screen: dict | None = None
+        self.last_confirm_t = 0.0  # wall clock of the last ALIKED + LightGlue check
+        self.last_P: np.ndarray | None = None
+        self.last_rho: np.ndarray | None = None
+        self.evidence: dict[str, bytes] = {}
+        self.screen = None
+        self.screen_frames = [self.reader.read(int(i)) for i in np.linspace(0, min(1000, self.n_frames - 3), 9)]
+
+    def probe_px(self) -> np.ndarray:
+        """The zone's corners in the original image: the points the watchdog follows."""
+        corners = np.array([[x, y] for x in self.zone_rect[:2] for y in self.zone_rect[2:]], float)
+        return self.lens.distort(cv2.perspectiveTransform(corners.reshape(-1, 1, 2), self.H_w2u).reshape(-1, 2))
 
     def _knock(self, img: np.ndarray) -> np.ndarray:
         """A simulated knock to the camera: 3 degrees of roll and a shift."""
@@ -338,11 +366,11 @@ class CameraZone:
                 self.prev_heads_m = None
             a = self._read(f)
             b = self._read(f + 2)
-            ua = cv2.remap(a, self.m1, self.m2, cv2.INTER_LINEAR)
-            ub = cv2.remap(b, self.m1, self.m2, cv2.INTER_LINEAR)
-            heads = self.lens.undistort(self.fc.detect_caps(a))
+            ua, heads = self.prepare(a)
+            ub, _ = self.prepare(b, heads=False)
             fl = self.flow(self.flow.prepare(ua), self.flow.prepare(ub))
             fr = self.builder.build_from_points(f / self.fps, heads, fl, 2 / self.fps)
+            self.last_field = (f, fr)
             self.window.append(fr)
             self.flux_window.append(self._crossings(heads))
             self.frame_idx = f + 5
@@ -356,6 +384,7 @@ class CameraZone:
         occupied = inz & (rho > 1.0)
         with self.frame_lock:
             self.last_raw, self.last_und, self.last_heads = last_raw, last_und, last_heads
+            self.last_P, self.last_rho = P, rho
         with self.state_lock:
             s = self.state
             if restarted:
@@ -364,12 +393,27 @@ class CameraZone:
             s.t += seconds
             s.n = float(mass[inz].sum())
             s.rho = s.n / self.area
+            s.rho_peak = float(rho[inz].max()) if inz.any() else None
             s.pressure = float(np.percentile(P[occupied], 90)) if occupied.sum() > 5 else 0.0
             s.outflow_pps = float(np.sum(self.flux_window)) / (len(self.flux_window) * 0.2) if self.flux_window else 0.0
             s.los = level_of_service(s.rho)
             s.push()
         self.timing.append(time.perf_counter() - t0)
         self._render(last_und, last_heads, P)
+
+    def prepare(self, img: np.ndarray, heads: bool = True) -> tuple[np.ndarray, np.ndarray | None]:
+        """Undistorted working frame, and the heads in full-size undistorted pixels."""
+        small = img if self.ws == 1.0 else cv2.resize(img, self.work_size, interpolation=cv2.INTER_AREA)
+        und = cv2.remap(small, self.m1, self.m2, cv2.INTER_LINEAR)
+        if not heads:
+            return und, None
+        c = self.fc.detect_caps(small, scale=self.ws)
+        full = (c + 0.5) / self.ws - 0.5 if len(c) else c  # working px -> original px
+        return und, self.lens.undistort(full)
+
+    def count_crop(self, und: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """What the second counter sees: the zone's bounding box at COUNT_SCALE of full size."""
+        return zone_crop(und, self.S @ self.H_w2u, self.zone_rect, COUNT_SCALE / self.ws)
 
     def _crossings(self, heads_und: np.ndarray, max_step_m: float = 0.5) -> int:
         """Heads that crossed the gate line since the previous sample (0.2 s earlier): each head
@@ -389,7 +433,7 @@ class CameraZone:
 
     def _render(self, und, heads, P):
         """Annotated frame: pushing-index heat on the head plane, heads, zone outline, gate line."""
-        img = cv2.resize(und, (960, 720), interpolation=cv2.INTER_AREA)
+        img = und if und.shape[1] == 960 else cv2.resize(und, (960, 720), interpolation=cv2.INTER_AREA)
         sx = 960 / self.W
         Pn = np.clip(P / 0.25, 0, 1)  # 0.25 /s^2 is the 95th percentile of pushing rows in test A
         heat = (Pn * 255).astype(np.uint8)
@@ -432,20 +476,66 @@ class CameraZone:
         u = self.lens.undistort(px)
         return cv2.perspectiveTransform(u.reshape(-1, 1, 2), self.H_u2w).reshape(-1, 2)
 
-    def check_camera(self) -> dict:
+    def screen_camera(self) -> dict:
+        """ECC screen of the latest frame against the calibration frame (tens of ms)."""
+        from .drift import ShiftScreen
+
+        if self.screen is None:
+            self.screen = ShiftScreen(self.screen_frames, self.to_floor, self.probe_px())
+            self.screen_frames = []
+        with self.frame_lock:
+            live = self.last_raw
+        r = self.screen.check(live).to_json()
+        self.last_screen = {**r, "t": self.state.t}
+        return r
+
+    def confirm_camera(self) -> dict:
+        """ALIKED + LightGlue (OpenCV 5 features module) against the calibration frame."""
         from .drift import DriftWatch
 
-        corners = np.array([[x, y] for x in self.zone_rect[:2] for y in self.zone_rect[2:]], float)
-        probe = self.lens.distort(cv2.perspectiveTransform(corners.reshape(-1, 1, 2), self.H_w2u).reshape(-1, 2))
+        probe = self.probe_px()
         with self.frame_lock:
             live = self.last_raw
         with self.drift_lock:
             if ISOLATE_MODELS:
-                r = _isolated(_drift_job, self.ref_frame, live, self.lens.x, self.H_u2w, probe)
+                r = _isolated(jobs.drift_job, self.ref_frame, live, self.lens.x, self.H_u2w, probe)
             else:
                 if self.drift is None:
                     self.drift = DriftWatch(self.ref_frame, self.to_floor, probe)
-                r = self.drift.check(live).to_json()
+                with HEAVY:
+                    r = self.drift.check(live).to_json()
+        self.last_confirm_t = time.time()
+        return {"method": "ALIKED + LightGlue", **r}
+
+    def check_camera(self, force: bool = False) -> dict:
+        """Two stages. The ECC screen runs first; a steady screen on a trusted camera is the
+        answer, and a screen that measures a shift beyond the tolerance withdraws trust at once.
+        A smaller shift, a low correlation, a camera already flagged, or `force` sends the frame
+        to ALIKED + LightGlue, which decides; only that check restores trust."""
+        sc = self.screen_camera()
+        with self.state_lock:
+            trusted_now = self.state.trusted
+        if sc["verdict"] == "steady" and trusted_now and not force:
+            r = {"trusted": True, "floor_shift_m": sc["floor_shift_m"], "reason": "", "method": "ECC screen",
+                 "screen": sc, "escalated": False}
+        elif sc["verdict"] == "moved" and sc["floor_shift_m"] > self.screen.tol and trusted_now and not force:
+            # trust is withdrawn on the screen's measurement at once; only the features check gives it back
+            r = {"trusted": False, "floor_shift_m": sc["floor_shift_m"], "method": "ECC screen", "screen": sc,
+                 "escalated": False,
+                 "reason": f"camera moved: calibration points shifted {sc['floor_shift_m']:.2f} m on the floor (ECC screen)"}
+        else:
+            try:
+                full = self.confirm_camera()
+            except Exception as e:
+                msg = f"features check failed ({type(e).__name__}: {str(e)[:120]})"
+                if sc["verdict"] == "steady" and trusted_now:
+                    # a periodic confirmation that could not run: the steady screen stands
+                    full = {"method": "ECC screen", "trusted": True, "floor_shift_m": sc["floor_shift_m"], "reason": "",
+                            "note": msg}
+                else:  # the screen saw motion and nothing could confirm it: do not trust the camera
+                    full = {"method": "ALIKED + LightGlue", "trusted": False, "floor_shift_m": None,
+                            "reason": msg + "; camera unverified"}
+            r = {**full, "screen": sc, "escalated": True}
         with self.state_lock:
             self.state.trusted, self.state.trust_reason = r["trusted"], r["reason"]
             self.last_drift = {**r, "t": self.state.t}
@@ -461,16 +551,14 @@ class CameraZone:
         if und is None:
             return {"error": "no frame processed yet"}
         x0, x1, y0, y1 = self.zone_rect
-        poly = cv2.perspectiveTransform(np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], float).reshape(-1, 1, 2),
-                                        self.H_w2u).reshape(-1, 2)
-        mask = np.zeros(und.shape[:2], np.uint8)
-        cv2.fillPoly(mask, [poly.astype(np.int32)], 1)
+        crop, mask = self.count_crop(und)
         if ISOLATE_MODELS:
-            count, secs = _isolated(_count_job, und, mask)
+            count, secs = _isolated(jobs.count_job, crop, mask)
         else:
             if self.counter is None:
-                self.counter = DensityModel("sha", "new", max_side=1280)
-            r = self.counter(und, roi_mask=mask)
+                self.counter = DensityModel("sha", max_side=4096)
+            with HEAVY:
+                r = self.counter(crop, roi_mask=mask)
             count, secs = r.count, r.seconds
         w = cv2.perspectiveTransform(np.asarray(heads, float).reshape(-1, 1, 2), self.H_u2w).reshape(-1, 2) \
             if len(heads) else np.zeros((0, 2))
@@ -479,12 +567,84 @@ class CameraZone:
         lo, hi = E1_COUNT_RATIO_BAND
         agree = n_heads >= 3 and lo <= ratio <= hi
         return {"count_primary": n_heads, "count_second": round(count, 1), "ratio": round(ratio, 2),
-                "agreement_band": [lo, hi], "agree": bool(agree), "second_counter_ms": round(secs * 1000),
+                "agreement_band": [lo, hi], "agree": bool(agree), "second_counter_ms": round(secs * 1000), "dnn_engine": DEFAULT_ENGINE,
                 "note": "head detector vs DM-Count (OpenCV 5 DNN); band measured on six Jülich runs"}
 
     def jpeg(self) -> bytes | None:
         with self.frame_lock:
             return self.last_jpeg
+
+    def locate_pushing(self, threshold: float = Thresholds().warn_pressure, min_area_m2: float = 0.25) -> dict:
+        """Where in the zone the crowd is pushing. The pushing index (2 s mean) is thresholded on
+        the floor grid and split into connected regions (`connectedComponentsWithStats`); each
+        region is placed relative to the gate and cut out of the camera image as evidence for
+        the steward. Sides are as people see them walking towards the gate."""
+        with self.frame_lock:
+            P, rho, und = self.last_P, self.last_rho, self.last_und
+        if P is None or und is None:
+            return {"error": "no frame processed yet"}
+        x0, x1, y0, y1 = self.zone_rect
+        c = self.grid.centres().reshape(*self.grid.shape, 2)
+        inz = (c[..., 0] >= x0) & (c[..., 0] < x1) & (c[..., 1] >= y0) & (c[..., 1] < y1)
+        m = ((P >= threshold) & inz).astype(np.uint8)
+        n, lab, stats, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
+        cell_a = self.grid.cell ** 2
+        gate_y, gate_x = self.zone_rect[2], (self.gate_line.a[0] + self.gate_line.b[0]) / 2
+        spots = []
+        for i in range(1, n):
+            area = stats[i, cv2.CC_STAT_AREA] * cell_a
+            if area < min_area_m2:
+                continue
+            sel = lab == i
+            k = np.argmax(np.where(sel, P, -1))
+            px, py = c.reshape(-1, 2)[k]
+            lateral = float(px - gate_x)
+            side = "centre" if abs(lateral) < 0.6 else ("left" if lateral > 0 else "right")
+            spots.append({"area_m2": round(float(area), 2), "peak_pushing_index": round(float(P[sel].max()), 3),
+                          "density": round(float(rho[sel].max()), 1), "people": round(float(rho[sel].sum() * cell_a), 1),
+                          "metres_before_gate": round(float(py - gate_y), 1), "side": side,
+                          "_box": (c[..., 0][sel].min(), c[..., 0][sel].max(), c[..., 1][sel].min(), c[..., 1][sel].max())})
+        spots.sort(key=lambda h: -h["peak_pushing_index"])
+        spots = spots[:3]
+        for h in spots:
+            h["evidence_image"] = self._evidence(und, P, h.pop("_box"))
+        return {"hotspots": spots, "threshold": threshold,
+                "note": "regions of the zone where the pushing index is above the alert threshold, largest first; "
+                        "side as seen walking towards the gate"}
+
+    def _evidence(self, und: np.ndarray, P: np.ndarray, box: tuple) -> str:
+        """Camera crop around a hotspot, with the pushing heat and the hotspot outlined."""
+        import uuid
+
+        bx0, bx1, by0, by1 = box
+        pad = 0.8
+        poly_m = np.array([[bx0, by0], [bx1, by0], [bx1, by1], [bx0, by1]], float)
+        view_m = np.array([[bx0 - pad, by0 - pad], [bx1 + pad, by0 - pad], [bx1 + pad, by1 + pad], [bx0 - pad, by1 + pad]], float)
+        G = self.S @ self.H_w2u  # floor metres -> working px
+        img = und.copy()
+        Pn = np.clip(P / 0.25, 0, 1)
+        A = np.array([[1 / self.grid.cell, 0, -self.grid.x0 / self.grid.cell - 0.5],
+                      [0, 1 / self.grid.cell, -self.grid.y0 / self.grid.cell - 0.5], [0, 0, 1]])
+        warped = cv2.warpPerspective((Pn * 255).astype(np.uint8), G @ np.linalg.inv(A), (img.shape[1], img.shape[0]))
+        col = cv2.applyColorMap(warped, cv2.COLORMAP_INFERNO)
+        alpha = (warped.astype(np.float32) / 255.0 * 0.5)[..., None]
+        img = (img * (1 - alpha) + col * alpha).astype(np.uint8)
+        hp = cv2.perspectiveTransform(poly_m.reshape(-1, 1, 2), G).reshape(-1, 2)
+        cv2.polylines(img, [hp.astype(np.int32)], True, (255, 255, 255), 3, cv2.LINE_AA)
+        vp = cv2.perspectiveTransform(view_m.reshape(-1, 1, 2), G).reshape(-1, 2)
+        h, w = img.shape[:2]
+        x0, y0 = np.clip(vp.min(0).astype(int), 0, [w - 1, h - 1])
+        x1, y1 = np.clip(vp.max(0).astype(int), 1, [w, h])
+        crop = img[y0:y1, x0:x1]
+        s = 480 / max(crop.shape[:2])
+        crop = cv2.resize(crop, (max(1, int(crop.shape[1] * s)), max(1, int(crop.shape[0] * s))), interpolation=cv2.INTER_AREA)
+        ok, buf = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        eid = "ev_" + uuid.uuid4().hex[:10]
+        with self.frame_lock:
+            self.evidence[eid] = buf.tobytes()
+            for old in list(self.evidence)[:-24]:
+                del self.evidence[old]
+        return eid
 
 
 def forecast_skill(path: Path = ROOT / "eval" / "results" / "test_b_twin.json") -> dict[str, float]:
@@ -589,6 +749,12 @@ class Runtime:
             return {"count_primary": round(n), "count_second": round(n), "agree": True,
                     "note": "simulated zone: the count is exact"}
 
+        def locate_pushing(zone: str) -> dict:
+            z = self.zones()[zone]
+            if isinstance(z, CameraZone):
+                return z.locate_pushing()
+            return {"hotspots": [], "note": "simulated zone: the twin models crowd numbers, not pushing"}
+
         def measure_exit_flow(zone: str) -> dict:
             z = self.zones()[zone]
             with self.lock:
@@ -605,7 +771,7 @@ class Runtime:
             return z.forecast(action, hist=frozen[zone])
 
         return {"get_zone_state": get_zone_state, "check_camera": check_camera, "cross_check_count": cross_check_count,
-                "measure_exit_flow": measure_exit_flow, "_forecast": _forecast}
+                "locate_pushing": locate_pushing, "measure_exit_flow": measure_exit_flow, "_forecast": _forecast}
 
     # -- the loop --------------------------------------------------------------------
     def evaluate(self, name: str) -> None:
@@ -615,7 +781,8 @@ class Runtime:
         with self.lock:
             s = z.state
             s.minutes_to_act = None if fc.seconds_to_threshold is None else fc.seconds_to_threshold / 60
-            d = self.policy.decide(ZoneReading(name, s.t, s.rho, s.pressure, s.minutes_to_act, s.trusted, s.trust_reason))
+            d = self.policy.decide(ZoneReading(name, s.t, s.rho, s.pressure, s.minutes_to_act, s.trusted, s.trust_reason,
+                                               s.rho_peak))
             if d.tier.name != s.tier:
                 self.trace.write("tier", zone=name, t=round(s.t, 1), tier=d.tier.name, reasons=d.reasons,
                                  rho=round(s.rho, 2), pressure=round(s.pressure, 4))
@@ -632,16 +799,23 @@ class Runtime:
             self._verify()
 
     def _watchdog(self) -> None:
-        """Checks the camera every DRIFT_EVERY_S. Losing trust opens an episode straight away,
-        even while a crowd proposal for the zone is waiting: that proposal rests on this camera."""
+        """Screens the camera every SCREEN_EVERY_S with ECC and confirms with ALIKED + LightGlue
+        when the screen is not steady, and every CONFIRM_EVERY_S regardless. Losing trust opens
+        an episode straight away, even while a crowd proposal for the zone is waiting: that
+        proposal rests on this camera."""
         cam = self.camera
         while self.running:
-            time.sleep(DRIFT_EVERY_S)
+            time.sleep(SCREEN_EVERY_S)
             if self._idle() or cam is None:
                 continue
             try:
                 was = cam.state.trusted
-                r = cam.check_camera()
+                r = cam.check_camera(force=time.time() - cam.last_confirm_t > CONFIRM_EVERY_S)
+                if r["escalated"] and r["trusted"] == was and r["screen"]["verdict"] != "steady":
+                    self.trace.write("drift_screen", zone=cam.name, camera=cam.camera_name, screen=r["screen"],
+                                     confirmed=r["method"], trusted=r["trusted"])
+                if r.get("note"):
+                    self.trace.write("error", where="watchdog", error=r["note"])
                 if was and not r["trusted"]:
                     self.trace.write("drift", zone=cam.name, camera=cam.camera_name, **r)
                     with self.lock:

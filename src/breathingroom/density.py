@@ -12,6 +12,8 @@ In the console, DM-Count is the second, independent counter behind the head dete
 from __future__ import annotations
 
 import hashlib
+import os
+import platform
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +32,9 @@ ENGINES = {
     "ort": cv2.dnn.ENGINE_ORT,
     "auto": cv2.dnn.ENGINE_AUTO,
 }
+# Measured with bench/bench_stages.py: on AWS Graviton the classic engine runs DM-Count about five
+# times faster than the new graph engine, with the same count; on x86 the new engine is faster.
+DEFAULT_ENGINE = os.environ.get("BR_DNN_ENGINE") or ("classic" if platform.machine().lower() in ("aarch64", "arm64") else "new")
 
 
 def sha256(path: Path) -> str:
@@ -51,7 +56,7 @@ class DensityResult:
 class DensityModel:
     """One DM-Count network on the OpenCV DNN engine."""
 
-    def __init__(self, name: str = "sha", engine: str = "new", max_side: int = 1280):
+    def __init__(self, name: str = "sha", engine: str = DEFAULT_ENGINE, max_side: int = 1280):
         self.name = name
         self.path = MODELS_DIR / f"dmcount_{name}.onnx"
         if not self.path.exists():

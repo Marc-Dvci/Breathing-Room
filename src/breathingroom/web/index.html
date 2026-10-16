@@ -9,7 +9,7 @@
 </head>
 <body>
 <header class="bar">
-  <div class="brand"><img src="/static/icon.svg" alt="" width="28" height="28"><span>Breathing Room</span></div>
+  <h1 class="brand"><img src="/static/icon.svg" alt="" width="28" height="28"><span>Breathing Room</span></h1>
   <div class="venue">Demonstration venue · Station Road and Entrance E1</div>
   <div class="meta">
     <span id="clock" class="chip">t = 0:00</span>
@@ -60,8 +60,8 @@
   </section>
 
   <section class="card log">
-    <div class="card-head"><h2>Record</h2><a href="/api/trace/verify" target="_blank" rel="noopener" class="small">verify chain</a></div>
-    <ul id="log"></ul>
+    <div class="card-head"><h2>Record</h2><span class="links"><a href="/report" target="_blank" rel="noopener" class="small">evening report</a> · <a href="/api/trace/verify" target="_blank" rel="noopener" class="small">verify chain</a></span></div>
+    <ul id="log" tabindex="0" aria-label="Record of the evening, newest first"></ul>
   </section>
 </main>
 <script src="/static/app.js"></script>

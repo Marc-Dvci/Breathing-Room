@@ -1,0 +1,28 @@
+:root { --ink: #14181f; --muted: #5b6472; --line: #e3e6eb; --teal: #0f766e; font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif; }
+body { margin: 0; background: #fff; color: var(--ink); font-size: 14px; line-height: 1.45; }
+main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { margin: 0 0 4px; font-size: 24px; }
+h2 { font-size: 17px; margin: 28px 0 10px; }
+h3 { font-size: 14px; margin: 0 0 6px; }
+header p { margin: 4px 0; color: var(--muted); }
+.chain { font-weight: 600; padding: 8px 10px; border-radius: 8px; word-break: break-all; }
+.chain.ok { background: #eef6f4; color: #0b5f59; }
+.chain.bad { background: #fdecea; color: #9f1239; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12px; }
+a { color: var(--teal); }
+button { font: inherit; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 16px; }
+.kpis div { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.kpis b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+.kpis span { color: var(--muted); font-size: 12px; }
+.prop { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; break-inside: avoid; }
+.prop .radio { font-size: 16px; font-weight: 600; margin: 6px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; font-variant-numeric: tabular-nums; }
+th { color: var(--muted); font-weight: 500; }
+.timeline td:nth-child(1) { white-space: nowrap; }
+.calls { margin: 6px 0 0; padding-left: 20px; }
+.calls span { color: var(--muted); }
+.foot { color: var(--muted); font-size: 12px; margin-top: 24px; }
+@media print { .noprint { display: none; } main { padding: 0; } details { display: block; } }
+@media (max-width: 640px) { .timeline td:nth-child(2) { display: none; } .timeline th:nth-child(2) { display: none; } }

@@ -45,6 +45,7 @@ class ZoneReading:
     minutes_to_act: float | None
     trusted: bool = True
     trust_reason: str = ""
+    rho_peak: float | None = None  # densest spot in the zone, when the camera measures it
 
 
 @dataclass
@@ -83,8 +84,10 @@ class TierPolicy:
             up(Tier.WARN, f"density {r.rho:.1f}/m2 >= {th.warn_rho}")
         elif r.rho >= th.watch_rho:
             up(Tier.WATCH, f"density {r.rho:.1f}/m2 >= {th.watch_rho}")
-        if r.pressure >= th.warn_pressure and r.rho >= th.watch_rho:
-            up(Tier.WARN, f"pushing index {r.pressure:.3f}/s2 >= {th.warn_pressure}")
+        # pushing counts where people are packed: the zone's mean density, or its densest spot
+        packed = max(r.rho, r.rho_peak or 0.0)
+        if r.pressure >= th.warn_pressure and packed >= th.watch_rho:
+            up(Tier.WARN, f"pushing index {r.pressure:.3f}/s2 >= {th.warn_pressure} where the crowd reaches {packed:.1f}/m2")
             if r.rho >= th.warn_rho:
                 up(Tier.ACT, "pushing in a dense zone")
         if r.minutes_to_act is not None:

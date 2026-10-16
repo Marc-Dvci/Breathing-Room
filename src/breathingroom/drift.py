@@ -87,3 +87,68 @@ class DriftWatch:
         ok = floor_shift <= self.tol
         reason = "" if ok else f"camera moved: calibration points shifted {floor_shift:.2f} m on the floor"
         return DriftCheck(ok, floor_shift, img_shift, len(mt), int(inl.sum()), time.perf_counter() - t0, reason)
+
+
+@dataclass
+class ScreenCheck:
+    floor_shift_m: float
+    correlation: float
+    seconds: float
+    verdict: str  # "steady", "moved" or "unsure"
+
+    def to_json(self) -> dict:
+        return {"method": "ECC screen", "verdict": self.verdict,
+                "floor_shift_m": None if not np.isfinite(self.floor_shift_m) else round(self.floor_shift_m, 3),
+                "correlation": round(self.correlation, 3), "ms": round(self.seconds * 1000, 1)}
+
+
+class ShiftScreen:
+    """A cheap first check of the camera: `cv.findTransformECC` aligns the live frame to the
+    calibration frame on the pixels that stay still in the recording (barriers, floor, walls),
+    coarse to fine. It costs tens of milliseconds, so it can
+    run every few seconds. The motion model is a full homography, so a zoom or a tilt is measured
+    as well as a roll or a shift. A large shift, or a low correlation (lighting change, a scene
+    the model does not explain), sends the camera to the ALIKED + LightGlue check."""
+
+    def __init__(self, frames_bgr: list[np.ndarray], to_floor, probe_px: np.ndarray, tolerance_m: float = 0.25,
+                 width: int = 480, min_correlation: float = 0.85):
+        self.to_floor = (lambda p: apply_h(to_floor, p)) if isinstance(to_floor, np.ndarray) else to_floor
+        self.probe = np.asarray(probe_px, float).reshape(-1, 2)
+        self.tol = tolerance_m
+        self.min_cc = min_correlation
+        h, w = frames_bgr[0].shape[:2]
+        self.s = width / w
+        self.size = (width, int(round(h * self.s)))
+        g = np.stack([self._grey(f) for f in frames_bgr]).astype(np.float32)
+        med = np.median(g, 0)
+        # still pixels: within 12 grey levels of the median in at least 90% of the frames
+        self.mask = ((np.abs(g - med) < 12).mean(0) >= 0.9).astype(np.uint8) * 255
+        self.ref = self._grey(frames_bgr[0])
+        self.pyr = [(cv2.resize(self.ref, None, fx=1 / 2**k, fy=1 / 2**k, interpolation=cv2.INTER_AREA),
+                     cv2.resize(self.mask, (self.size[0] >> k, self.size[1] >> k), interpolation=cv2.INTER_NEAREST))
+                    for k in (2, 1, 0)]
+
+    def _grey(self, bgr: np.ndarray) -> np.ndarray:
+        return cv2.resize(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY), self.size, interpolation=cv2.INTER_AREA)
+
+    def check(self, bgr: np.ndarray) -> ScreenCheck:
+        t0 = time.perf_counter()
+        live = self._grey(bgr)
+        warp = np.eye(3)  # reference -> live, at working size
+        cc = 0.0
+        crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 60, 1e-5)
+        for (ref, mask), k in zip(self.pyr, (2, 1, 0)):
+            D = np.diag([1 / 2**k, 1 / 2**k, 1.0])
+            lv = cv2.resize(live, (ref.shape[1], ref.shape[0]), interpolation=cv2.INTER_AREA)
+            w = (D @ warp @ np.linalg.inv(D)).astype(np.float32)
+            try:
+                cc, w = cv2.findTransformECC(ref, lv, w, cv2.MOTION_HOMOGRAPHY, crit, mask, 5)
+            except cv2.error:
+                return ScreenCheck(float("inf"), 0.0, time.perf_counter() - t0, "unsure")
+            warp = np.linalg.inv(D) @ w.astype(np.float64) @ D
+        S = np.diag([self.s, self.s, 1.0])
+        G = np.linalg.inv(S) @ warp @ S  # reference -> live, full-size pixels
+        moved = apply_h(G, self.probe)
+        shift = float(np.linalg.norm(self.to_floor(moved) - self.to_floor(self.probe), axis=1).max())
+        verdict = "unsure" if cc < self.min_cc else ("moved" if shift > self.tol / 2 else "steady")
+        return ScreenCheck(shift, float(cc), time.perf_counter() - t0, verdict)
