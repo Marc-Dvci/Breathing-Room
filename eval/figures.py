@@ -96,8 +96,37 @@ def fig_flux():
     save(fig, "fig_e1_outflow.png")
 
 
+def fig_venues():
+    d = json.loads((RES / "test_b_venues.json").read_text())
+    names = list(d["layouts"])
+    choice = d["summary"]["choice"]
+    fig, (a, b) = plt.subplots(1, 2, figsize=(8.4, 3.4), sharey=True, gridspec_kw={"wspace": 0.08})
+    for i, name in enumerate(names):
+        y = len(names) - 1 - i
+        lead = [r["lead_time_s"] / 60 for r in d["venues"][name].values() if r.get("lead_time_s") is not None]
+        a.scatter(lead, [y] * len(lead), s=46, color=BLUE, alpha=0.85, lw=0, zorder=2)
+        runs = [c for c in choice if c["venue"] == name]
+        b.scatter([c["regret_plain"] for c in runs], [y] * len(runs), s=46, color="#b9b9b4", lw=0, zorder=2)
+        b.scatter([c["regret_with_error"] for c in runs], [y] * len(runs), s=46, color=BLUE, alpha=0.85, lw=0, zorder=3)
+    a.set_yticks(range(len(names)), list(reversed(names)))
+    a.set_xlim(0, 6)
+    a.set_xlabel("minutes of warning before 4 people/m²")
+    b.set_xlim(-0.1, 2.6)
+    b.set_xlabel("regret of the chosen action, people/m²")
+    b.text(0.06, len(names) - 0.45, "with measured error", color=BLUE, fontsize=9.5)
+    b.text(2.55, len(names) - 0.45, "forecast alone", color=MUTED, fontsize=9.5, ha="right")
+    for ax in (a, b):
+        ax.grid(axis="y", visible=False)
+        ax.tick_params(axis="y", length=0)
+        ax.set_ylim(-0.6, len(names) - 0.1)
+    b.spines["left"].set_visible(False)
+    save(fig, "fig_venues.png")
+
+
 if __name__ == "__main__":
     fig_test_a()
     fig_flux()
     if (RES / "test_b_twin.json").exists():
         fig_twin()
+    if (RES / "test_b_venues.json").exists():
+        fig_venues()

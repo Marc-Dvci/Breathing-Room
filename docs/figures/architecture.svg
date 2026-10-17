@@ -59,7 +59,7 @@
   <rect class="cv" x="680" y="194" width="230" height="100" rx="10"/>
   <text class="h" x="696" y="220">Second counter</text>
   <text class="t" x="696" y="242">DM-Count ONNX on the</text>
-  <text class="t" x="696" y="260">DNN engine (ENGINE_NEW)</text>
+  <text class="t" x="696" y="260">DNN engine (classic on Arm)</text>
   <text class="s" x="696" y="280">checks the head count (own process)</text>
 
   <rect class="box" x="270" y="320" width="300" height="86" rx="10"/>

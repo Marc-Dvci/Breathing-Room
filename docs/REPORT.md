@@ -69,7 +69,7 @@ committed under it, so the console always reads a consistent snapshot.
 | Metric geometry | `findHomography` (USAC MAGSAC, RANSAC fallback), `perspectiveTransform` | head-plane homography; focal length and camera pose recovered from the floor homography for oblique views |
 | Crowd fields | `GaussianBlur` on a 0.1 m grid | Helbing et al. (2007): density, velocity variance, pressure = density × variance |
 | Outflow | Hungarian matching of heads between samples (SciPy), line test in metres | heads crossing a line 0.4 m before the gate |
-| Second count | `dnn.readNetFromONNX` with `ENGINE_NEW`, `blobFromImage` | DM-Count (SHA for the overhead view, QNRF for oblique street CCTV) |
+| Second count | `dnn.readNetFromONNX` with the engine picked per architecture (`ENGINE_CLASSIC` on Graviton, `ENGINE_NEW` on x86), `blobFromImage` | DM-Count (SHA for the overhead view, QNRF for oblique street CCTV) |
 | Camera screen | `findTransformECC` (`MOTION_HOMOGRAPHY`, coarse to fine, with a mask) | every 3 s; the mask keeps the pixels that stay still in the recording (barriers, floor, walls) |
 | Camera confirmation | `ALIKED_create`, `LightGlueMatcher_create` (features module), `findHomography` (USAC MAGSAC) | when the screen sees motion, and every 10 minutes; both stages move the calibration points and measure their shift on the floor in metres |
 | Where the pushing is | `connectedComponentsWithStats` on the thresholded field, `warpPerspective`, `imencode` | regions placed relative to the gate in metres, and cut out of the camera image for the steward |
@@ -227,6 +227,10 @@ only, as the console does.
 - Ranking on predicted peak plus the first venue's error chose metering both gates in 21 of 21
   runs: regret at most 0.05 people/m² (mean 0.01), and the zone stayed under 0.84/m². Ranking on
   predicted peak alone chose the second door every time, with a mean regret of 1.98.
+
+![Seven more venues](figures/fig_venues.png)
+
+*Lead time of every warning that preceded 4 people/m² (left) and regret of the chosen action with and without the first venue's measured error (right), seven layouts, three seeds each.*
 
 Building the twin exposed two simulator problems: with the collision-free speed model, streams
 that cross at an exit gridlock, and a person bound for one door who is pushed into the other

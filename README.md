@@ -11,7 +11,7 @@ whether the action worked. After the evening, a safety officer reads a report ge
 tamper-evident record.
 
 **Live console:** <https://44-199-44-59.sslip.io> (no login; it pauses when nobody is watching and
-starts a fresh evening for the next visitor) · **Film:** _link added after upload_ ·
+starts a fresh evening for the next visitor) · **Film (4:35):** <https://youtu.be/zFVNj1GJoLQ> ·
 **Technical report:** [docs/REPORT.md](docs/REPORT.md) · **Evening report:**
 <https://44-199-44-59.sslip.io/report> · **MCP endpoint:** `https://44-199-44-59.sslip.io/mcp` (read-only)
 
@@ -51,6 +51,10 @@ Breathing Room adds both, and measures them on real data:
 | It runs on a small Arm instance | on a t4g.small (AWS Graviton, 2 vCPU) the console's OpenCV 5 pipeline needs **528 ms per camera-second** at half size (718 ms at full size), 873 ms with DM-Count every 5 s | [bench/bench_stages.py](bench/bench_stages.py), [results](bench/results/graviton2_t4g_small.json) |
 | The DNN engine is chosen per platform | DM-Count on the zone crop takes **1,728 ms** on Graviton with `ENGINE_CLASSIC` against 9,482 ms with `ENGINE_NEW`, same count; on the x86 desktop the new engine is the faster one, so the engine is picked by architecture | same |
 | Exit capacity comes from real bottleneck data | flow = **2.02 × width** (R² 0.81) over 24 Jülich runs; the system plans with 1.3 people/m/s, below all 24 | [eval/test_b_capacity.py](eval/test_b_capacity.py) |
+
+![Seven venue layouts the forecast was never tuned on](docs/figures/fig_venues.png)
+
+*Seven street layouts the forecaster was never tuned on, three runs each. Left: every run that reached 4 people/m² was warned 3.2 to 5.2 minutes ahead (the three short, wide-exit runs peaked just under 4). Right: regret of the chosen action, priced with the error measured on the first venue (blue) and on the forecast alone (grey).*
 
 ## How it works
 
