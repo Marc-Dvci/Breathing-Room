@@ -215,6 +215,19 @@ miss by 1.85 people/m² on average. Ranking on predicted peak plus each action's
 estimated on the other four evenings (leave one out), chooses metering both gates in 5 of 5
 evenings, with a mean regret of 0.01 people/m².
 
+**Other venues.** The same forecaster and the same choice rule ran, with nothing retuned, on seven
+more layouts (`eval/test_b_venues.py`): streets 18 to 45 m long and 5 to 10 m wide, main exits
+1.6 to 4.0 m, second doors 1.0 to 2.0 m, surges scaled to the exit, three seeds each. Metering
+rates scale with the exit width; each action is priced with the error measured on the first venue
+only, as the console does.
+
+- 18 of the 21 runs reached 4.0/m². All 18 were warned 3.2 to 5.2 minutes ahead (median 3.5);
+  median error of the predicted time 1 to 5 minutes ahead: 35 s. The three runs of the short street
+  with a 3 m exit peaked at 3.94 to 3.98/m², just under the line, after a warning.
+- Ranking on predicted peak plus the first venue's error chose metering both gates in 21 of 21
+  runs: regret at most 0.05 people/m² (mean 0.01), and the zone stayed under 0.84/m². Ranking on
+  predicted peak alone chose the second door every time, with a mean regret of 1.98.
+
 Building the twin exposed two simulator problems: with the collision-free speed model, streams
 that cross at an exit gridlock, and a person bound for one door who is pushed into the other
 keeps pressing against the wall between them. A side passage first planned for the twin made
@@ -361,7 +374,7 @@ whole inflow.
   comes from DM-Count, measured at 10.9% error on oblique street scenes; the pushing index from
   DM-Count density reached AUROC 0.767 on the overhead view, against 0.798 from heads.
 - The pushing threshold was set and tested on six runs of one experiment series, with one camera.
-- The minutes-to-danger forecast is tested on a simulated venue. Its pedestrian model cannot pack
+- The minutes-to-danger forecast is tested on eight simulated street layouts. Its pedestrian model cannot pack
   people above about 4.5/m², so forecast peaks above that are not scored, and the twin's
   behaviour at exits shaped what the forecast gets wrong.
 - The forecast assumes the inflow trend lasts two minutes. A sudden surge (a train arriving) is

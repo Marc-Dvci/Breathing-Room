@@ -42,6 +42,7 @@ Breathing Room adds both, and measures them on real data:
 | Outflow is measured from video | **56 of 56** people counted across the entrance gate line by the console's pipeline, error 0.04 people/s | [eval/test_e1_flux.py](eval/test_e1_flux.py) |
 | The two counters agree, or the system says so | DM-Count / head count inside the zone stays within **0.22 to 0.79** on 95% of 398 frames (r = 0.91); outside that band the cross-check reports disagreement | [eval/test_e1_count_band.py](eval/test_e1_count_band.py) |
 | Minutes to danger arrive early and are accurate | warning **3.6 to 4.1 minutes** before the zone reaches 4/m² (5 runs); median error **32 s** when 1 to 5 minutes ahead | [eval/test_b_twin.py](eval/test_b_twin.py) |
+| The forecast carries to venues it was never tuned on | 7 more street layouts (18 to 45 m long, 5 to 10 m wide, exits 1.6 to 4.0 m), 3 runs each, nothing retuned: **18 of 18** runs that reached 4/m² were warned **3.2 to 5.2 minutes** ahead, median error **35 s**; the other 3 peaked at 3.94 to 3.98/m² after a warning. Actions priced with the error measured on the first venue: regret at most **0.05 people/m²** in **21 of 21** runs (1.98 without), and the chosen action kept the zone under 0.84/m² | [eval/test_b_venues.py](eval/test_b_venues.py), [results](eval/results/test_b_venues.json) |
 | The proposal picks an action that works | with each action's measured forecast error priced in, mean regret **0.01 people/m²** (out of sample), against 1.85 without | [eval/score_test_b.py](eval/score_test_b.py) |
 | A knocked, zoomed or tilted camera is caught before its numbers are used | 216 checks on 12 moments of the recording, with rolls, zooms and tilts of known size. Two stages: an ECC screen (`findTransformECC`, homography model, on the still background) measures the floor shift to 4 mm (median) in **228 ms** on Graviton; ALIKED + LightGlue confirm in 3,046 ms, only when the screen sees motion. Together: **84 of 84** moves above 0.25 m flagged, **0** false alarms in 132 checks; flagged within **5 s** on the live instance | [eval/test_e_drift.py](eval/test_e_drift.py) |
 | Counting holds on real oblique street CCTV | DM-Count QNRF on the OpenCV 5 DNN engine: **10.9%** mean error, r = 0.985 on 100 CroHD frames with 45 to 250 people | [eval/test_d_counting.py](eval/test_d_counting.py) |
@@ -152,6 +153,7 @@ python eval/test_a_pushing.py && python eval/score_test_a.py   # pushing index v
 python eval/test_a_console.py                                  # the same, through the console's CameraZone
 python eval/test_b_capacity.py                                 # exit capacity, 24 bottleneck runs
 python eval/test_b_twin.py && python eval/score_test_b.py      # forecasts and actions on the venue twin
+python eval/test_b_venues.py                                   # the same on 7 other layouts
 python eval/test_c_agent.py --repeats 6                        # agent episodes on fixed scenarios
 python eval/test_d_counting.py                                 # DM-Count on CroHD (download HT21.zip to ../data/ht21)
 python eval/test_e_drift.py                                    # camera watchdog against knocks of known size
