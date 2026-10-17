@@ -155,8 +155,8 @@ function proposalCard(p) {
       <div><div class="v">${p.predicted.peak_density.toFixed(1)}</div><div class="l">predicted peak in 10 min, people/m², with this action${p.predicted.at_approval ? " (forecast again at approval)" : ""}</div></div>
       <div><div class="v">${none ? none.peak.toFixed(1) : "–"}</div><div class="l">without action</div></div>
     </div>
-    <table><thead><tr><th>Action compared</th><th title="predicted peak density in 10 minutes, people/m²">Peak</th><th title="how far the twin's peak exceeded this forecast, on average, in testing">Tested error</th><th>Min to 4.5</th></tr></thead><tbody>
-      ${alts.map((a) => `<tr class="${a.forecast_id === p.forecast_id ? "chosen" : ""}"><td>${esc(actionLabel(a))}</td><td>${a.peak.toFixed(1)}</td><td>${a.forecast_error != null ? "+" + a.forecast_error.toFixed(1) : "–"}</td><td>${a.minutes_to_threshold ?? "–"}</td></tr>`).join("")}
+    <table><thead><tr><th>Action compared</th><th title="predicted peak density in 10 minutes, people/m²">Peak</th><th title="how far the twin's peak exceeded this forecast, on average, in testing">Tested error</th><th>Min to 4.5</th><th title="people the action keeps waiting before the entrance within 10 minutes: the crowd it moves upstream. A lower bound: in testing the queue was 1.6 to 2.8 times this">Held outside, at least</th></tr></thead><tbody>
+      ${alts.map((a) => `<tr class="${a.forecast_id === p.forecast_id ? "chosen" : ""}"><td>${esc(actionLabel(a))}</td><td>${a.peak.toFixed(1)}</td><td>${a.forecast_error != null ? "+" + a.forecast_error.toFixed(1) : "–"}</td><td>${a.minutes_to_threshold ?? "–"}</td><td>${a.held_at_entrance ? a.held_at_entrance : "–"}</td></tr>`).join("")}
     </tbody></table>
     ${(p.evidence_images || []).length ? `<div class="evidence">${p.evidence_images.map((e) => `<figure><img src="/api/evidence/${esc(e.id)}.jpg" alt="Camera crop where pushing was located: ${esc(e.side)} side, ${esc(e.metres_before_gate)} m before the gate" loading="lazy"><figcaption>Pushing located: ${esc(e.side)} side, ${esc(e.metres_before_gate)} m before the gate (index ${esc(e.peak_pushing_index)} /s²)</figcaption></figure>`).join("")}</div>` : ""}
     <div class="why">${esc(p.rationale)}</div>
@@ -247,9 +247,18 @@ async function renderLog() {
   } catch (_) { /* the log is secondary */ }
 }
 
+let pinRequired = null;  // outside the public demo, every decision needs the steward's own PIN
+
 async function decide(id, verb, btn) {
+  if (pinRequired === null) pinRequired = await fetch("/api/mode").then((r) => r.json()).then((m) => m.pin_required).catch(() => true);
+  const body = { who: "steward" };
+  if (pinRequired) {
+    const pin = window.prompt(`Your steward PIN to ${verb} this proposal`);
+    if (!pin) return;
+    body.pin = pin;
+  }
   if (btn) btn.disabled = true;
-  const r = await fetch(`/api/proposals/${id}/${verb}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ who: "steward" }) });
+  const r = await fetch(`/api/proposals/${id}/${verb}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (!r.ok) { const m = (await r.json()).detail || "could not record the decision"; $("#proposal").insertAdjacentHTML("afterbegin", `<p class="err">${esc(m)}</p>`); }
   tick();
 }

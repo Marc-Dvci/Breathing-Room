@@ -46,6 +46,14 @@ mkdir -p /etc/caddy
 sed "s/{\$BR_HOST}/$HOST/" $APP/deploy/Caddyfile > /etc/caddy/Caddyfile
 install -m 644 $APP/deploy/caddy.service /etc/systemd/system/caddy.service
 
+# The key that signs the trace: made once, kept outside the app folder, readable but not writable
+# by the service (ProtectSystem=full also makes /etc read-only to it). Redeploys keep it.
+mkdir -p /etc/breathingroom
+if [ ! -f /etc/breathingroom/trace_key.pem ]; then
+  (umask 077; PYTHONPATH=$APP/src $APP/.venv/bin/python -c "from breathingroom.trace import new_signing_key; new_signing_key('/etc/breathingroom/trace_key.pem')")
+fi
+chown root:breathingroom /etc/breathingroom/trace_key.pem && chmod 640 /etc/breathingroom/trace_key.pem
+
 TOKEN=$(curl -s -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
 REGION=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/region)
 cat > /etc/breathingroom.env <<EOF
@@ -58,6 +66,8 @@ BR_SCREEN_EVERY_S=3
 BR_CONFIRM_EVERY_S=600
 BR_CLOUDWATCH_GROUP=/breathingroom/trace
 BR_CLOUDWATCH_STREAM=console
+BR_TRACE_KEY=/etc/breathingroom/trace_key.pem
+BR_MODE=demo
 AWS_REGION=$REGION
 AWS_DEFAULT_REGION=$REGION
 EOF

@@ -38,7 +38,7 @@ fi
 aws iam put-role-policy --role-name $ROLE --policy-name BreathingRoomRuntime --policy-document "{
   \"Version\":\"2012-10-17\",\"Statement\":[
    {\"Effect\":\"Allow\",\"Action\":[\"bedrock-mantle:*\",\"bedrock:CallWithBearerToken\"],\"Resource\":\"*\"},
-   {\"Effect\":\"Allow\",\"Action\":[\"logs:CreateLogStream\",\"logs:PutLogEvents\",\"logs:DescribeLogStreams\"],\"Resource\":\"arn:aws:logs:$REGION:$ACCOUNT:log-group:$LOGS:*\"},
+   {\"Effect\":\"Allow\",\"Action\":[\"logs:CreateLogStream\",\"logs:PutLogEvents\",\"logs:DescribeLogStreams\",\"logs:GetLogEvents\"],\"Resource\":\"arn:aws:logs:$REGION:$ACCOUNT:log-group:$LOGS:*\"},
    {\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/*\"}]}"
 
 VPC=$(aws ec2 describe-subnets --subnet-ids "$SUBNET" --query "Subnets[0].VpcId" --output text $A)

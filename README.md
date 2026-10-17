@@ -122,10 +122,13 @@ python -m venv .venv
 .venv/Scripts/pip install -e . --no-deps
 python scripts/fetch_models.py                             # ALIKED, LightGlue, DM-Count (SHA-256 checked)
 python scripts/fetch_data.py --videos demo                 # Jülich data to ../data (CC BY 4.0)
-BR_USE_MODEL=0 .venv/Scripts/python -m uvicorn breathingroom.api:app --app-dir src --port 8000
+BR_MODE=demo BR_USE_MODEL=0 .venv/Scripts/python -m uvicorn breathingroom.api:app --app-dir src --port 8000
 ```
 
-Open <http://127.0.0.1:8000>. `BR_USE_MODEL=0` uses the deterministic planner; with
+Open <http://127.0.0.1:8000>. `BR_MODE=demo` turns on the demonstration controls and lets anyone
+decide while no steward accounts exist (the trace records those decisions as unauthenticated);
+without it the console runs in production mode, where every decision needs a steward's PIN.
+`BR_USE_MODEL=0` uses the deterministic planner; with
 `BR_USE_MODEL=1` and AWS credentials that can call the Bedrock API endpoint, the agent runs on
 `openai.gpt-oss-120b`. DM-Count ONNX files come from `python scripts/fetch_models.py --export`
 (needs PyTorch).
@@ -138,7 +141,10 @@ Open <http://127.0.0.1:8000>. `BR_USE_MODEL=0` uses the deterministic planner; w
 | `BR_TRACE` | `var/trace.jsonl` | hash-chained trace |
 | `BR_CLOUDWATCH_GROUP` | unset | also send each trace entry to this log group |
 | `BR_IDLE_PAUSE_S` | `0` | pause when no console has polled for this long |
-| `BR_STEWARD_PIN` | unset | require a PIN to approve or reject |
+| `BR_MODE` | `production` | `production`: decisions need a steward's PIN, no demonstration controls; `demo`: the public demonstration |
+| `BR_STEWARDS_FILE` | unset | steward accounts, JSON name → PIN hash, made with `python -m breathingroom.stewards "<name>"`; each decision is recorded under the steward whose PIN was entered |
+| `BR_STEWARD_PIN` | unset | a single account named `steward` |
+| `BR_TRACE_KEY` | unset | Ed25519 private key (PEM) that signs every trace entry; the public key is at `/api/trace/key` |
 | `BR_ISOLATE_MODELS` | `0` | `1` runs ALIKED + LightGlue and DM-Count in a fresh child process (small instances) |
 | `BR_SCREEN_EVERY_S`, `BR_CONFIRM_EVERY_S` | `3`, `600` | ECC screen period; features check period while the screen is steady |
 | `BR_WORK_SCALE` | `0.5` | fraction of full size at which camera frames are undistorted and searched |
@@ -146,7 +152,7 @@ Open <http://127.0.0.1:8000>. `BR_USE_MODEL=0` uses the deterministic planner; w
 ## Test it
 
 ```bash
-.venv/Scripts/python -m pytest -q                         # 21 unit tests
+.venv/Scripts/python -m pytest -q                         # 27 unit tests
 python tools/ui_smoke.py http://127.0.0.1:8000            # drives the console headless: knock, recalibration, proposal, approve, verify
 ```
 
@@ -158,6 +164,8 @@ python eval/test_a_console.py                                  # the same, throu
 python eval/test_b_capacity.py                                 # exit capacity, 24 bottleneck runs
 python eval/test_b_twin.py && python eval/score_test_b.py      # forecasts and actions on the venue twin
 python eval/test_b_venues.py                                   # the same on 7 other layouts
+python eval/test_b_policy.py                                   # the console's alert policy, and the queue each action creates
+python eval/test_a_operating.py                                # index plus density; alert operating points
 python eval/test_c_agent.py --repeats 6                        # agent episodes on fixed scenarios
 python eval/test_d_counting.py                                 # DM-Count on CroHD (download HT21.zip to ../data/ht21)
 python eval/test_e_drift.py                                    # camera watchdog against knocks of known size
@@ -174,12 +182,15 @@ AWS_PROFILE=<admin> bash deploy/redeploy.sh <instance-id> <a-b-c-d>.sslip.io
 ```
 
 `provision.sh` creates an IAM role limited to Systems Manager, the Bedrock API endpoint,
-one log group and one bucket; a security group open on 80 and 443 only (no SSH: the instance is
+one log group (append and read, no delete) and one bucket; a security group open on 80 and 443 only (no SSH: the instance is
 administered through SSM); and a t4g.small (Graviton) on Amazon Linux 2023 with IMDSv2 required
 and an encrypted volume. `setup_instance.sh` installs the pinned dependencies with the headless
 OpenCV 5.0.0 aarch64 wheel, builds JuPedSim from source (PyPI has no aarch64 Linux wheel), and
 runs the console under systemd behind Caddy, which obtains a Let's Encrypt certificate for the
-sslip.io hostname.
+sslip.io hostname. On first setup it makes the Ed25519 key that signs the trace, in
+`/etc/breathingroom`, readable but not writable by the service. The public instance runs with
+`BR_MODE=demo` so visitors can try the approval; a venue would run in production mode with
+named steward accounts.
 
 ## Repository
 
@@ -191,7 +202,8 @@ sslip.io hostname.
 | `src/breathingroom/physics.py` | zone mass balance, forecast, actions |
 | `src/breathingroom/policy.py`, `agent.py` | deterministic tiers; agent episode, tools, guards, fallback planner |
 | `src/breathingroom/runtime.py`, `twin.py`, `api.py`, `web/` | live zones, venue twin (JuPedSim), API and console |
-| `src/breathingroom/trace.py`, `report.py` | hash-chained JSONL trace, CloudWatch Logs; the evening report |
+| `src/breathingroom/trace.py`, `report.py` | hash-chained, signed JSONL trace, checked against its CloudWatch Logs copy; the evening report |
+| `src/breathingroom/stewards.py` | steward accounts: PIN hashes, wrong-PIN lockout |
 | `src/breathingroom/mcp.py` | the read-only tools over the Model Context Protocol |
 | `eval/`, `bench/`, `tests/`, `tools/` | evaluations, per-stage timing, unit tests, UI driver |
 | `deploy/` | AWS provisioning, instance setup, systemd and Caddy units |
@@ -213,7 +225,11 @@ sslip.io hostname.
 - The E1 head detector finds the orange caps every participant wore in the Jülich experiments. On
   ordinary CCTV, heads come from a counting network: DM-Count QNRF measured 10.9% error on oblique
   street footage, while on the overhead Jülich view DM-Count undercounts (the pushing index from
-  DM-Count density reaches AUROC 0.767, against 0.798 from heads).
+  DM-Count density reaches AUROC 0.767, against 0.798 from heads). Set to flag 10% of walking
+  person-seconds, the DM-Count pathway flags 12% of pushing on held-out runs: too few for
+  unattended alerts. The console makes none; a pushing alert ends with a camera crop in front of a
+  steward. With the head detector, the index and density together reach AUROC 0.831 against 0.786
+  for density alone (leave one run out, `eval/test_a_operating.py`).
 - The ECC screen models a camera that rotates and shifts. A zoom or a tilt shows up as a drop in
   correlation, which sends the frame to the features check.
 - The venue twin's pedestrian model cannot pack people above about 4.5/m²: queues spill upstream,
@@ -222,6 +238,15 @@ sslip.io hostname.
   peak plus that measured error, and the verification step catches an action that does not bend
   the curve.
 - The pushing threshold was set and tested on six runs of one experiment series.
+- Forecasts and actions are scored in simulation (JuPedSim), on scenarios from the same simulator:
+  consistent within the model, not shown at real events. Under the console's own alert policy
+  (WARN at 10 minutes to 4.5/m², ACT at 5), 30 simulated evenings: all 22 that reached 4.5/m²
+  had WARN 247 to 457 s ahead; the other 8 peaked at 3.94 to 4.48/m² after an ACT
+  (`eval/test_b_policy.py`).
+- In those 30 evenings the action choice always metered both gates, as the fixed rule "always meter
+  both gates" would, and metering kept a median of 912 people waiting before the gates. Every
+  proposal shows each action's queue as "held outside, at least" (the forecast was 1.6 to 2.8 times
+  too low in testing); the rule itself ranks on the zone's peak.
 - The camera zone replays a recording: approving an action there records the decision only.
 
 ## Responsible use

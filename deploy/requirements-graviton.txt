@@ -25,6 +25,7 @@ httpcore2==2.13.1
 jiter==0.17.0
 aws-bedrock-token-generator==1.1.0
 boto3==1.43.114
+cryptography==50.0.2
 botocore==1.43.114
 s3transfer==0.19.2
 jmespath==1.1.0

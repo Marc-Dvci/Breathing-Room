@@ -149,6 +149,23 @@ def test_metering_one_gate_caps_only_its_share():
     assert empty.seconds_to_threshold is None and empty.peak_rho == 0
 
 
+def test_metering_and_holding_move_people_into_a_queue_upstream():
+    t = np.arange(0, 120.0)
+    n = 100 + 1.0 * t
+    out = np.full_like(t, 2.0)  # inflow 3/s, steady
+    kw = dict(threshold=4.5, window_s=60, horizon_s=600)
+    one = forecast("z", t, n, out, 100, 1.6, **kw, action=Action("meter_entry", "gate A", rate_pps=0.5, share=0.5))
+    both = forecast("z", t, n, out, 100, 1.6, **kw, action=Action("meter_entry", "both", rate_pps=0.5))
+    hold = forecast("z", t, n, out, 100, 1.6, **kw, action=Action("hold_entry", "both"))
+    side = forecast("z", t, n, out, 100, 1.6, **kw, action=Action("open_exit", "side", width_m=2.4))
+    assert one.held_back_peak == pytest.approx(1.0 * 600, rel=0.03)  # gate A turns away 1 of its 1.5/s
+    assert both.held_back_peak == pytest.approx(2.5 * 600, rel=0.03)
+    assert hold.held_back_peak == pytest.approx(3.0 * 600, rel=0.03) and hold.held_back_wait_s == 600
+    assert side.held_back_peak == 0 and forecast("z", t, n, out, 100, 1.6, **kw).held_back_peak == 0
+    # at 0.5/s the queue of gate A takes longer than the horizon to clear
+    assert one.held_back_wait_s == 600
+
+
 def test_forecast_carries_a_rising_inflow_forward():
     t = np.arange(0, 120.0)
     out = np.full_like(t, 2.0)

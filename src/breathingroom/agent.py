@@ -220,12 +220,16 @@ class Episode:
         mins = None if fc.seconds_to_threshold is None else round(fc.seconds_to_threshold / 60, 1)
         err = spec.get("forecast_error")
         self.forecast_actions[fc.id]["forecast_error"] = err
+        self.forecast_actions[fc.id]["held_at_entrance"] = round(fc.held_back_peak)
+        self.forecast_actions[fc.id]["longest_wait_min"] = round(fc.held_back_wait_s / 60, 1)
         return {"forecast_id": fc.id, "action": fc.action, "density_now": round(fc.rho_now, 2),
                 "peak_density_10min": round(fc.peak_rho, 2), "minutes_to_threshold": mins,
                 "measured_forecast_error": err,
                 "peak_with_error": None if err is None else round(fc.peak_rho + err, 2),
                 "threshold": fc.threshold, "net_rate_per_min": round(fc.net_rate_pps * 60, 1),
-                "inflow_per_min": round(fc.inflow_pps * 60, 1), "outflow_per_min": round(fc.outflow_pps * 60, 1)}
+                "inflow_per_min": round(fc.inflow_pps * 60, 1), "outflow_per_min": round(fc.outflow_pps * 60, 1),
+                "people_held_at_entrance_10min": round(fc.held_back_peak),
+                "longest_wait_at_entrance_min": round(fc.held_back_wait_s / 60, 1)}
 
     def _propose(self, a: dict) -> dict:
         fid = a.get("forecast_id", "")

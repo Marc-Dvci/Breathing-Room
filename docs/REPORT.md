@@ -163,6 +163,32 @@ The threshold 0.11 /s² is the Youden point on runs 030, 040 and 050. On runs 06
 flags 90% of pushing person-seconds and 31% of walking ones. Video density against the reference
 trajectories: Pearson 0.996, mean absolute error 0.13 people/m².
 
+### 6.1b Does the index add to density, and how specific can an alert be?
+
+`eval/test_a_operating.py`, on the same 9,260 rows.
+
+- **Together, not instead.** Alone, the index (0.798) is 0.012 above video density (0.786).
+  Together, in a logistic model fitted on five runs and scored on the sixth (leave one run out),
+  they reach **0.831**: 0.045 above density alone, 95% interval 0.031 to 0.060 (resampling
+  people). The index carries motion information that density does not. DM-Count reads density
+  2.4/m² low on this overhead view (r = 0.75), and there the pair gains nothing over the index
+  alone (0.709 against 0.767).
+- **Operating points.** The threshold is set on runs 030, 040 and 050 to flag a target share of
+  walking person-seconds, with the index averaged over each person's last 3 s, and scored on runs
+  060, 150 and 160:
+
+| Pathway | Set to flag, walking | Held-out pushing flagged | Held-out walking flagged |
+|---|---|---|---|
+| heads | 10% | 36% | 5% |
+| heads | 20% | 63% | 13% |
+| DM-Count | 10% | 12% | 3% |
+| DM-Count | 20% | 30% | 8% |
+
+On the DM-Count pathway, a threshold specific enough for unattended alerts misses most pushing.
+The console does not alert unattended: a pushing alert opens an investigation that ends with a
+camera crop of the spot in front of a steward. Pushing detection on ordinary CCTV across venues
+is untested; the only rated pushing data used here is one experiment series.
+
 ### 6.2 Outflow from video
 
 Heads counted across the gate line in run 150 by the console's pipeline: 56 people, the same 56
@@ -237,6 +263,40 @@ that cross at an exit gridlock, and a person bound for one door who is pushed in
 keeps pressing against the wall between them. A side passage first planned for the twin made
 the crowd worse when opened; it was replaced by a second exit door next to the main exit, and
 people near the exits use the open door they are lined up with.
+
+### 6.4b Under the console's alert policy, and the crowd an action moves upstream
+
+The tests above score a warning given 5 minutes before 4.0/m². The console works differently:
+`TierPolicy` raises WARN, which opens an investigation, at 10 minutes to 4.5/m² (or 3.5/m²
+measured) and ACT at 5 minutes to 4.5/m² (or 4.5/m² measured). `eval/test_b_policy.py` replays
+the twin through `TierPolicy` itself, with the console's forecast settings, on the reference
+venue, the seven layouts above, and two with a second door wider than usual (2.8 m beside a
+1.6 m exit; 2.2 m beside 1.8 m): ten layouts, three seeds, 30 evenings.
+
+- **Alerts.** 22 evenings reached 4.5/m². In all 22, WARN came 247 to 457 s ahead (median 275 s)
+  and ACT 212 to 432 s ahead (median 255 s). The other 8 peaked at 3.94 to 4.48/m², after both
+  WARN and ACT: the forecast said 5 minutes to 4.5 and the crowd stopped just short of it.
+- **The choice was narrow.** From the moment the investigation opens, the console's rule chose
+  metering both gates in 30 of 30 evenings, with regret under 0.25/m² in all 30 (mean 0.02). The
+  fixed rule "always meter both gates" has the same mean regret. These scenarios test the
+  forecast well and the choice between different actions hardly at all.
+- **Metering moves the crowd upstream.** The twin counts the people a gate holds back. Metering
+  both gates kept a median of 912 people waiting before the gates (up to 1,626), holding both
+  1,559 (up to 2,876), opening the second door 10 (up to 268). The twin does not model the
+  approach, so the density of that queue is not measured.
+- **The forecast of that queue is low.** In all 120 action runs the forecast queue was at or
+  below the simulated one, by a median factor of 1.6 (holding) to 2.8 (metering both gates): the
+  forecast carries the inflow seen at the warning, and the surge kept rising. Every proposal now
+  shows it, per action, as "held outside, at least".
+- **A rule that weighs the queue.** Scored on the same runs and not used by the console: the
+  least disruptive action whose peak plus measured error stays under 3.5/m², fewest people held
+  first. It opens the second door in 30 of 30 evenings; the zone peaks at 3.01/m² at most, under
+  WARN in all 30, and a median of 10 people wait outside instead of 912. Whether that trade is
+  right depends on where the queue would stand, which belongs to the venue's safety plan, so the
+  console shows both numbers and the steward decides.
+
+Scenarios and scoring come from the same simulator family (JuPedSim). These results show the
+forecast and the choice are consistent within that model, not that they work at real events.
 
 ### 6.5 Test C: the agent
 
@@ -363,9 +423,24 @@ whole inflow.
   through AWS Systems Manager. Caddy terminates TLS with a Let's Encrypt certificate for the
   sslip.io name of the Elastic IP and adds HSTS; the app sets `X-Content-Type-Options`,
   `X-Frame-Options` and `Referrer-Policy`.
-- **Least privilege.** The instance role can call the Bedrock API endpoint, write to one log
-  group and read one bucket.
+- **Least privilege.** The instance role can call the Bedrock API endpoint, append to and read
+  one log group, and read one bucket. It cannot delete or change log events.
 - **Observability.** The hash-chained trace on disk and in CloudWatch Logs (30-day retention).
+- **A record a rewrite cannot pass.** A hash chain alone stops edits to single lines, not someone
+  who rewrites the whole file and recomputes every hash. Two further checks do. Every entry is
+  signed with an Ed25519 key that is made once at setup, kept in `/etc/breathingroom` and is
+  readable but not writable by the service; its public key opens every run of the trace and is
+  served at `/api/trace/key`. And because the role can only append to the log group, the
+  CloudWatch copy is a witness the instance cannot rewrite: the evening report compares the
+  local entries with it and says how many match (`trace.compare_cloudwatch`). A unit test
+  rewrites a trace without the key: the chain re-hashes intact, the signatures and the
+  CloudWatch comparison both fail.
+- **Who decides.** Outside the public demonstration (`BR_MODE=production`, the default) a
+  decision needs a steward's PIN, and is recorded under that steward's name: accounts are named,
+  PINs are stored as salted PBKDF2 hashes, and wrong PINs lock out a client after 5 tries in
+  5 minutes (and everyone after 30). The demonstration controls (knock the camera, restart, speed)
+  exist only in demo mode. The public demonstration runs with `BR_MODE=demo` and no accounts, so
+  anyone can try the approval; the trace and the evening report mark those decisions "no PIN".
 - **Repeatability.** `deploy/provision.sh` creates every resource idempotently,
   `deploy/redeploy.sh` builds a bundle, uploads it to S3 and runs `deploy/setup_instance.sh`
   through SSM.
@@ -377,7 +452,12 @@ whole inflow.
 - E1's head detector relies on the caps of the Jülich participants. On ordinary CCTV, density
   comes from DM-Count, measured at 10.9% error on oblique street scenes; the pushing index from
   DM-Count density reached AUROC 0.767 on the overhead view, against 0.798 from heads.
+  Set to flag 10% of walking person-seconds, the DM-Count pathway flags 12% of pushing on held-out
+  runs (6.1b): not specific enough for unattended alerts, which the console does not make.
 - The pushing threshold was set and tested on six runs of one experiment series, with one camera.
+- In 30 simulated evenings the action choice always metered both gates, as a fixed rule would,
+  and metering held hundreds of people before the gates (6.4b). The choice ranks actions by the
+  zone's peak; the queue it creates is shown to the steward, not weighed by the rule.
 - The minutes-to-danger forecast is tested on eight simulated street layouts. Its pedestrian model cannot pack
   people above about 4.5/m², so forecast peaks above that are not scored, and the twin's
   behaviour at exits shaped what the forecast gets wrong.
@@ -393,7 +473,9 @@ whole inflow.
 - **A person decides.** The tier is computed from measurements; the model proposes; a steward
   approves. A camera that cannot be trusted stops counting until a person recalibrates it.
 - **Accountability.** Every proposal, decision and outcome is in a tamper-evident trace, and the
-  evening report states whether the chain re-hashes intact before it lists anything.
+  evening report states whether the chain re-hashes intact, whether the signatures hold and how
+  many entries match the CloudWatch copy before it lists anything. Each decision names the
+  steward who made it.
 - **Other agents read, people decide.** The MCP endpoint exposes measurements and forecasts only.
   It has no tool that proposes, approves or changes the venue.
 - **Misuse.** The same numbers could be used to disperse a lawful gathering. The intended

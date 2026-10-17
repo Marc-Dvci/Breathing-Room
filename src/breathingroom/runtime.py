@@ -850,7 +850,7 @@ class Runtime:
 
         threading.Thread(target=work, daemon=True).start()
 
-    def decide(self, proposal_id: str, approve: bool, who: str = "steward") -> dict:
+    def decide(self, proposal_id: str, approve: bool, who: str = "steward", auth: str = "pin") -> dict:
         with self.lock:
             p = self.proposals.get(proposal_id)
             if p is None or p.status != "pending":
@@ -880,7 +880,7 @@ class Runtime:
                 p.verify = {"done": True, "outcome": "decision recorded; the recording cannot change"}
             else:
                 p.verify = {"done": True, "outcome": "rejected by the steward"}
-            self.trace.write("decision", proposal=p.id, zone=p.zone, approved=approve, by=who, applied=result,
+            self.trace.write("decision", proposal=p.id, zone=p.zone, approved=approve, by=who, auth=auth, applied=result,
                              predicted_peak=p.predicted.get("peak_density"))
             return {"ok": True, "status": p.status, "applied": result}
 

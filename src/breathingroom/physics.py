@@ -119,6 +119,10 @@ class Forecast:
     curve_t: list[float] = field(default_factory=list)
     curve_rho: list[float] = field(default_factory=list)
     inflow_trend_pps2: float = 0.0
+    # metering or holding an entrance moves people out of the zone into a queue before it: the
+    # most people waiting there within the horizon, and how long the last of them has waited
+    held_back_peak: float = 0.0
+    held_back_wait_s: float = 0.0
     id: str = ""
 
     def to_json(self) -> dict:
@@ -223,9 +227,17 @@ def forecast(zone: str, t: np.ndarray, n: np.ndarray, q_out: np.ndarray, area_m2
     infl0 = entering(inflow)
     outf0 = leaving(infl0, n_now)
     net = infl0 - outf0
+    held, held_peak, wait = 0.0, 0.0, 0.0
+    for tau in np.arange(0.0, horizon_s, 5.0):  # arrivals the action turns away from the zone queue up
+        q = float(np.clip(inflow + growth * min(tau, trend_persist_s), 0.0, TREND_CAP * max(inflow, 0.5)))
+        held += (q - entering(q)) * 5.0
+        held_peak = max(held_peak, held)
+    if held_peak > 0:
+        let_through = action.rate_pps if action.kind == "meter_entry" else 0.0
+        wait = horizon_s if let_through <= 0 else min(horizon_s, held / let_through)
     fc = Forecast(zone, action.describe(), n_now, area_m2, n_now / area_m2, float(net),
                   (float(net + lo - slope), float(net + hi - slope)), float(infl0), float(outf0), float(cap_total),
                   threshold, tt, rng, float(curve.max()), horizon_s, grid.tolist(), curve.tolist(),
-                  inflow_trend_pps2=growth)
+                  inflow_trend_pps2=growth, held_back_peak=float(held_peak), held_back_wait_s=float(wait))
     fc.id = "fc_" + hashlib.sha256(json.dumps(fc.to_json(), sort_keys=True, default=str).encode()).hexdigest()[:12]
     return fc

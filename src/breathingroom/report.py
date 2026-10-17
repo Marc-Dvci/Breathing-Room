@@ -12,7 +12,7 @@ import json
 import time
 from pathlib import Path
 
-from .trace import verify
+from .trace import compare_cloudwatch, verify, verify_signatures
 
 SHOWN = {"tier", "drift", "drift_screen", "agent_start", "agent_end", "agent_fallback", "proposal", "decision",
          "verify", "expired", "demo", "scenario", "error", "start"}
@@ -71,10 +71,26 @@ def _line(e: dict) -> tuple[str, str]:
     return k, ""
 
 
-def render(path: Path, everything: bool = False) -> str:
+def _witnesses(trace, ev: list[dict]) -> str:
+    """The checks a rewrite of the whole file cannot pass: signatures, and the CloudWatch copy."""
+    if trace is None:
+        return ""
+    out = []
+    key = trace.public_key()
+    if key:
+        s = verify_signatures(trace.path, key["public_key"])
+        out.append(("ok" if s.get("ok") else "bad", f"Signatures {'valid' if s.get('ok') else 'INVALID'}: {s['message']}."))
+    cw = compare_cloudwatch(trace, since_ts=ev[0]["ts"] if ev else None)
+    if cw.get("checked"):
+        out.append(("ok" if cw.get("ok") else "bad", f"Independent copy: {cw['message']} (the console can only append to it)."))
+    return "".join(f'<p class="chain {c}">{html.escape(t)}</p>' for c, t in out)
+
+
+def render(path: Path, everything: bool = False, trace=None) -> str:
     entries = _load(path)
     ok, n, msg = verify(path) if entries else (True, 0, "empty trace")
     ev = entries if everything else _evening(entries)
+    witnesses = _witnesses(trace, ev) if entries else ""
     props = {e["id"]: e for e in ev if e["kind"] == "proposal"}
     decisions = {e["proposal"]: e for e in ev if e["kind"] == "decision"}
     verifies = {e["proposal"]: e for e in ev if e["kind"] == "verify"}
@@ -95,18 +111,20 @@ def render(path: Path, everything: bool = False) -> str:
 
     def card(pid: str, p: dict) -> str:
         d, v = decisions.get(pid), verifies.get(pid)
-        state = ("approved by " + esc(str(d.get("by")))) if d and d.get("approved") else (
-            "rejected by " + esc(str(d.get("by"))) if d else ("expired without a decision" if pid in expired else "pending"))
+        by = esc(str(d.get("by"))) + (" (no PIN: public demonstration)" if str(d.get("auth", "")).startswith("none") else "") if d else ""
+        state = ("approved by " + by) if d and d.get("approved") else (
+            "rejected by " + by if d else ("expired without a decision" if pid in expired else "pending"))
         steps = "".join(f"<li><b>{esc(c['tool'].replace('_', ' '))}</b> <span>{c['ms']:.0f} ms</span></li>"
                         for c in calls.get(episode_of.get(pid, ""), []))
         alts = "".join(f"<tr><td>{esc(a.get('kind', '').replace('_', ' '))} {esc(str(a.get('target', '')))}</td><td>{a.get('peak')}</td>"
-                       f"<td>{'' if a.get('forecast_error') is None else '+' + str(a['forecast_error'])}</td></tr>"
+                       f"<td>{'' if a.get('forecast_error') is None else '+' + str(a['forecast_error'])}</td>"
+                       f"<td>{a.get('held_at_entrance') or ''}</td></tr>"
                        for a in sorted(p.get("alternatives") or [], key=lambda a: a.get("peak", 0)))
         return f"""<section class="prop">
   <h3>{esc(pid)} · {esc(p.get('zone', ''))} · {esc(p.get('tier', ''))} · {_clock(p['ts'])} UTC</h3>
   <p class="radio">“{esc(p.get('radio', ''))}”</p>
   <p>Planner: {esc(p.get('planner', ''))}. Rationale: {esc(p.get('rationale', ''))}</p>
-  <table><thead><tr><th>Action compared</th><th>Predicted peak, /m²</th><th>Tested error</th></tr></thead><tbody>{alts}</tbody></table>
+  <table><thead><tr><th>Action compared</th><th>Predicted peak, /m²</th><th>Tested error</th><th>Held outside, at least</th></tr></thead><tbody>{alts}</tbody></table>
   <p><b>Decision:</b> {state}.{f" <b>Verification:</b> {esc(v['outcome'])}, measured {v['observed_rho']}/m² against {v['predicted_rho']}/m² predicted after {v['elapsed_s']} s." if v else ""}</p>
   {f'<details><summary>Tool calls behind this proposal ({len(calls.get(episode_of.get(pid, ""), []))})</summary><ol class="calls">{steps}</ol></details>' if steps else ""}
 </section>"""
@@ -122,6 +140,7 @@ def render(path: Path, everything: bool = False) -> str:
 <link rel="stylesheet" href="/static/report.css"></head><body><main>
 <header><h1>Evening report</h1><p>Demonstration venue · Station Road and Entrance E1 · {esc(period)}</p>
 <p class="chain {'ok' if ok else 'bad'}">Record {'intact' if ok else 'BROKEN'}: {esc(msg)}, {n} entries re-hashed. Last entry hash <code>{esc(head)}</code></p>
+{witnesses}
 <p class="noprint"><a href="/">Back to the console</a> · <a href="/report?all=1">whole record</a> · <button onclick="window.print()">Print or save as PDF</button></p></header>
 <section class="kpis">
 <div><b>{len(episodes)}</b><span>investigations</span></div>
@@ -138,5 +157,5 @@ def render(path: Path, everything: bool = False) -> str:
 {''.join(card(pid, p) for pid, p in props.items()) or '<p>No proposals in this period.</p>'}
 <h2>Timeline</h2>
 <table class="timeline"><thead><tr><th>UTC</th><th>Zone</th><th>Event</th><th>Detail</th></tr></thead><tbody>{rows}</tbody></table>
-<p class="foot">Generated from the hash-chained trace at {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())} UTC. Each entry carries the SHA-256 of the previous one; any edited or deleted line breaks the chain above.</p>
+<p class="foot">Generated from the hash-chained trace at {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())} UTC. Each entry carries the SHA-256 of the previous one; any edited or deleted line breaks the chain above.{" A rewrite of the whole record is caught by the checks under it." if witnesses else ""}</p>
 </main></body></html>"""

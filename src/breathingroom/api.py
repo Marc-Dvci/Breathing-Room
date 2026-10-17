@@ -7,7 +7,12 @@ Environment:
     BR_CAMERA_RUN    rated entrance run replayed by camera E1 (default 150_q_56_h0)
     BR_USE_MODEL     1 = agent on the Bedrock API endpoint, 0 = deterministic planner
     BR_TRACE         trace file (default ./var/trace.jsonl)
-    BR_STEWARD_PIN   if set, approvals need this PIN
+    BR_MODE          "production" (default) or "demo". In production a decision needs a steward's PIN
+                     and the demonstration controls are off; "demo" is the public demonstration, where
+                     anyone may decide while no steward accounts exist and the trace says so
+    BR_STEWARDS_FILE steward accounts, JSON name -> PIN hash (python -m breathingroom.stewards)
+    BR_STEWARD_PIN   a single account named "steward"
+    BR_TRACE_KEY     Ed25519 private key (PEM) that signs every trace entry
 """
 
 from __future__ import annotations
@@ -25,13 +30,15 @@ from fastapi.staticfiles import StaticFiles
 
 from . import mcp, report
 from .runtime import CATALOGUE, ROOT, CameraZone, Runtime
-from .trace import verify
+from .stewards import Stewards
+from .trace import compare_cloudwatch, verify, verify_signatures
 
 WEB = Path(__file__).parent / "web"
 DATA = Path(os.environ.get("BR_DATA", ROOT.parent / "data"))
 RUN = os.environ.get("BR_CAMERA_RUN", "150_q_56_h0")
 TRACE = Path(os.environ.get("BR_TRACE", ROOT / "var" / "trace.jsonl"))
-PIN = os.environ.get("BR_STEWARD_PIN", "")
+MODE = os.environ.get("BR_MODE", "production")
+STEWARDS = Stewards.from_env()
 
 state: dict = {}
 MCP_CALLS_PER_MIN = 120  # the endpoint is public and the instance is small
@@ -45,7 +52,8 @@ def build_runtime() -> Runtime:
         cam = CameraZone(video, ROOT / "eval" / "calib" / "fzj_2018crowdqueue.json", RUN[:3])
     rt = Runtime(TRACE, use_model=os.environ.get("BR_USE_MODEL", "1") == "1", camera=cam,
                  seed=int(os.environ.get("BR_SEED", "7")))
-    rt.trace.write("start", camera_run=RUN if cam else None, use_model=rt.use_model)
+    rt.trace.write("start", camera_run=RUN if cam else None, use_model=rt.use_model, mode=MODE,
+                   steward_accounts=len(STEWARDS.accounts), signing_key=rt.trace.public_key())
     return rt
 
 
@@ -84,7 +92,7 @@ def index():
 
 @app.get("/report")
 def evening_report(all: int = 0):
-    return HTMLResponse(report.render(state["rt"].trace.path, everything=bool(all)), headers={"Cache-Control": "no-store"})
+    return HTMLResponse(report.render(state["rt"].trace.path, everything=bool(all), trace=state["rt"].trace), headers={"Cache-Control": "no-store"})
 
 
 @app.get("/health")
@@ -117,9 +125,28 @@ def evidence_jpg(eid: str):
     return Response(img, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
 
 
-def _pin_ok(body: dict) -> None:
-    if PIN and body.get("pin") != PIN:
-        raise HTTPException(403, "steward PIN required")
+def _client(request: Request) -> str:
+    # Caddy on the same host sets X-Forwarded-For; anything else is the direct peer
+    peer = request.client.host if request.client else ""
+    fwd = request.headers.get("x-forwarded-for", "") if peer in ("127.0.0.1", "::1") else ""
+    return fwd.split(",")[0].strip() or peer
+
+
+def _steward(body: dict, request: Request) -> tuple[str, str]:
+    """(who decided, how they were identified). With steward accounts a decision needs a PIN
+    and is recorded under that steward's name. Without accounts, only the public demo accepts
+    decisions, and records them as unauthenticated."""
+    if STEWARDS:
+        client = _client(request)
+        if STEWARDS.locked(client):
+            raise HTTPException(429, "too many wrong PINs; try again in a few minutes")
+        name = STEWARDS.identify(str(body.get("pin", "")), client)
+        if name is None:
+            raise HTTPException(403, "steward PIN required")
+        return name, "pin"
+    if MODE == "demo":
+        return str(body.get("who", "steward"))[:40], "none (public demo)"
+    raise HTTPException(403, "no steward accounts are configured: set BR_STEWARDS_FILE")
 
 
 @app.post("/api/proposals/{pid}/{verb}")
@@ -127,8 +154,8 @@ async def decide(pid: str, verb: str, request: Request):
     if verb not in ("approve", "reject"):
         raise HTTPException(404)
     body = await request.json() if request.headers.get("content-length") not in (None, "0") else {}
-    _pin_ok(body)
-    out = state["rt"].decide(pid, verb == "approve", who=str(body.get("who", "steward"))[:40])
+    who, auth = _steward(body, request)
+    out = state["rt"].decide(pid, verb == "approve", who=who, auth=auth)
     if not out.get("ok"):
         raise HTTPException(409, out.get("error"))
     return out
@@ -136,6 +163,8 @@ async def decide(pid: str, verb: str, request: Request):
 
 @app.post("/api/demo/{action}")
 def demo(action: str):
+    if MODE != "demo":
+        raise HTTPException(404)
     rt: Runtime = state["rt"]
     if action == "bump" and rt.camera is not None:
         rt.camera.bumped = True
@@ -193,5 +222,18 @@ def trace_tail(n: int = 120):
 
 @app.get("/api/trace/verify")
 def trace_verify():
-    ok, n, msg = verify(state["rt"].trace.path)
-    return {"ok": ok, "entries": n, "message": msg}
+    tr = state["rt"].trace
+    ok, n, msg = verify(tr.path)
+    return {"ok": ok, "entries": n, "message": msg,
+            "signatures": verify_signatures(tr.path, (tr.public_key() or {}).get("public_key")),
+            "cloudwatch": compare_cloudwatch(tr)}
+
+
+@app.get("/api/trace/key")
+def trace_key():
+    return state["rt"].trace.public_key() or {"signed": False}
+
+
+@app.get("/api/mode")
+def mode():
+    return {"mode": MODE, "pin_required": bool(STEWARDS) or MODE != "demo"}

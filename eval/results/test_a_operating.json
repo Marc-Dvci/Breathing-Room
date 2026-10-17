@@ -1,0 +1,128 @@
+{
+  "rows": 9260,
+  "pushing_share": 0.3383369330453564,
+  "sources": {
+    "video (heads)": {
+      "auc_density": 0.7859501025505928,
+      "auc_pushing_index": 0.7978967477987867,
+      "auc_both_leave_one_run_out": 0.8306465691016895,
+      "gain_over_density_ci95": [
+        0.03079569813917821,
+        0.05984435411561065
+      ],
+      "index_3s": [
+        {
+          "target_walking_flagged": 0.05,
+          "threshold": 0.26969046890735626,
+          "eval_pushing_flagged": 0.1422271223814774,
+          "eval_walking_flagged": 0.01646505376344086
+        },
+        {
+          "target_walking_flagged": 0.1,
+          "threshold": 0.21414679785569504,
+          "eval_pushing_flagged": 0.35942668136714445,
+          "eval_walking_flagged": 0.0456989247311828
+        },
+        {
+          "target_walking_flagged": 0.15,
+          "threshold": 0.18473688761393225,
+          "eval_pushing_flagged": 0.503858875413451,
+          "eval_walking_flagged": 0.08602150537634409
+        },
+        {
+          "target_walking_flagged": 0.2,
+          "threshold": 0.16425419350465134,
+          "eval_pushing_flagged": 0.6273428886438809,
+          "eval_walking_flagged": 0.1256720430107527
+        }
+      ],
+      "index_3s_where_packed": [
+        {
+          "target_walking_flagged": 0.05,
+          "threshold": 0.26969046890735626,
+          "eval_pushing_flagged": 0.1422271223814774,
+          "eval_walking_flagged": 0.015456989247311828
+        },
+        {
+          "target_walking_flagged": 0.1,
+          "threshold": 0.21414679785569504,
+          "eval_pushing_flagged": 0.3572216097023153,
+          "eval_walking_flagged": 0.043010752688172046
+        },
+        {
+          "target_walking_flagged": 0.15,
+          "threshold": 0.18470859030882514,
+          "eval_pushing_flagged": 0.4972436604189636,
+          "eval_walking_flagged": 0.08098118279569892
+        },
+        {
+          "target_walking_flagged": 0.2,
+          "threshold": 0.1635417540868123,
+          "eval_pushing_flagged": 0.6207276736493936,
+          "eval_walking_flagged": 0.1196236559139785
+        }
+      ]
+    },
+    "video (DM-Count)": {
+      "auc_density": 0.7015316454964242,
+      "auc_pushing_index": 0.767276132168077,
+      "auc_both_leave_one_run_out": 0.7094446931377136,
+      "gain_over_density_ci95": [
+        -0.007138559041868875,
+        0.023202108921091466
+      ],
+      "index_3s": [
+        {
+          "target_walking_flagged": 0.05,
+          "threshold": 0.12591996788978574,
+          "eval_pushing_flagged": 0.05733186328555678,
+          "eval_walking_flagged": 0.012768817204301076
+        },
+        {
+          "target_walking_flagged": 0.1,
+          "threshold": 0.09286503493785853,
+          "eval_pushing_flagged": 0.12017640573318633,
+          "eval_walking_flagged": 0.032594086021505375
+        },
+        {
+          "target_walking_flagged": 0.15,
+          "threshold": 0.07620659780999019,
+          "eval_pushing_flagged": 0.20507166482910694,
+          "eval_walking_flagged": 0.051075268817204304
+        },
+        {
+          "target_walking_flagged": 0.2,
+          "threshold": 0.06518408283591266,
+          "eval_pushing_flagged": 0.2954796030871003,
+          "eval_walking_flagged": 0.07661290322580645
+        }
+      ],
+      "index_3s_where_packed": [
+        {
+          "target_walking_flagged": 0.05,
+          "threshold": 0.11354044017692402,
+          "eval_pushing_flagged": 0.029768467475192944,
+          "eval_walking_flagged": 0.006048387096774193
+        },
+        {
+          "target_walking_flagged": 0.1,
+          "threshold": 0.0727306480209032,
+          "eval_pushing_flagged": 0.06945975744211687,
+          "eval_walking_flagged": 0.019153225806451613
+        },
+        {
+          "target_walking_flagged": 0.15,
+          "threshold": 0.0526813020308812,
+          "eval_pushing_flagged": 0.10694597574421169,
+          "eval_walking_flagged": 0.03393817204301075
+        },
+        {
+          "target_walking_flagged": 0.2,
+          "threshold": 0.040021954725185965,
+          "eval_pushing_flagged": 0.13009922822491732,
+          "eval_walking_flagged": 0.043010752688172046
+        }
+      ]
+    }
+  }
+}
