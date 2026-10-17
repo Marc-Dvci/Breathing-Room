@@ -152,7 +152,7 @@ without it the console runs in production mode, where every decision needs a ste
 ## Test it
 
 ```bash
-.venv/Scripts/python -m pytest -q                         # 27 unit tests
+.venv/Scripts/python -m pytest -q                         # 28 unit tests
 python tools/ui_smoke.py http://127.0.0.1:8000            # drives the console headless: knock, recalibration, proposal, approve, verify
 ```
 

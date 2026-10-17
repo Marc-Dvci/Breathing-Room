@@ -87,14 +87,33 @@ def test_a_rewritten_trace_re_hashes_but_fails_its_signatures_and_the_cloudwatch
     pub = tr.public_key()["public_key"]
     assert verify(tr.path)[0]
     assert verify_signatures(tr.path, pub)["ok"]
-    assert compare_cloudwatch(tr)["ok"]
+    assert compare_cloudwatch(tr, lag_s=0)["ok"]
 
     _rewrite_without_key(tr.path, lambda e: e.update(approved=True) if e["kind"] == "decision" else None)
     tr._cw_cache = None
     assert verify(tr.path)[0]  # the hash chain alone cannot tell
     sig = verify_signatures(tr.path, pub)
     assert sig["signed"] == 0 and sig["unsigned"] == 2  # the forger cannot sign
-    cw = compare_cloudwatch(tr)
-    assert not cw["ok"] and cw["matched"] == 0
+    cw = compare_cloudwatch(tr, lag_s=0)
+    assert not cw["ok"] and cw["matched"] == 0 and cw["unwitnessed"] == 2
     # the edited decision has a new hash; the untouched start entry lost its signature
     assert cw["missing_in_cloudwatch"] == 1 and cw["different_in_cloudwatch"] == 1
+
+
+def test_an_entry_lost_before_its_copy_is_still_fixed_by_the_next_one(tmp_path):
+    tr = Trace(tmp_path / "t.jsonl")
+    logs = FakeLogs()
+    tr._cw, tr._group, tr._stream = logs, "g", "s"
+    tr.write("tool_call", tool="check_camera")
+    tr.write("error", where="camera")
+    logs.events.pop()  # the process stopped between the local write and the copy
+    tr.write("start")
+    cw = compare_cloudwatch(tr, lag_s=0)
+    assert cw["ok"] and cw["matched"] == 2 and cw["covered_by_next"] == 1
+    # the same gap at the end of the file is not covered: only lag excuses it, and only briefly
+    logs.events.pop()
+    tr._cw_cache = None
+    assert not compare_cloudwatch(tr, lag_s=0)["ok"]
+    tr._cw_cache = None
+    late = compare_cloudwatch(tr, lag_s=120)
+    assert late["ok"] and late["not_yet_in_cloudwatch"] == 2

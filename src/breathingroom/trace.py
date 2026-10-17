@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 
 CW_CACHE_S = 60.0  # the report may be reloaded often; CloudWatch is read at most once a minute
+CW_LAG_S = 120.0  # entries this recent may not be readable from CloudWatch yet
 
 
 def _body(entry: dict) -> str:
@@ -165,7 +166,7 @@ def verify_signatures(path: str | Path, public_key_b64: str | None) -> dict:
             "message": f"{signed} entries signed by key {fp}" + (f"; {unsigned} written before signing" if unsigned else "")}
 
 
-def compare_cloudwatch(trace: Trace, since_ts: float | None = None, client=None) -> dict:
+def compare_cloudwatch(trace: Trace, since_ts: float | None = None, client=None, lag_s: float = CW_LAG_S) -> dict:
     """Compare the local entries written since `since_ts` with the CloudWatch copy. A local entry
     that CloudWatch does not hold, or holds with different content, is reported: it was either
     never mirrored (the writer counts those failures) or changed afterwards."""
@@ -198,22 +199,37 @@ def compare_cloudwatch(trace: Trace, since_ts: float | None = None, client=None)
             token = r["nextForwardToken"]
     except Exception as exc:  # noqa: BLE001
         return {"checked": False, "message": f"CloudWatch not readable: {type(exc).__name__}"}
-    matched = missing = differ = 0
-    first_bad = None
+    state = []
     for e in entries:
         got = remote.get(e["hash"])
-        if got == _body(e):
-            matched += 1
-            continue
-        if got is None:
-            missing += 1
-        else:
-            differ += 1
-        first_bad = first_bad or e["hash"][:12]
-    out = {"checked": True, "ok": matched == len(entries), "local": len(entries), "matched": matched,
-           "missing_in_cloudwatch": missing, "different_in_cloudwatch": differ,
-           "mirror_failures_since_start": trace.mirror_failures,
-           "message": f"{matched} of {len(entries)} entries match the CloudWatch copy"
-                      + (f"; first mismatch at {first_bad}" if first_bad else "")}
+        state.append("match" if got == _body(e) else ("missing" if got is None else "different"))
+    # An entry CloudWatch never received (the process stopped between the local write and the copy)
+    # is still fixed by the witness when CloudWatch holds the entry after it: that entry carries its
+    # hash. A rewrite changes every hash from the edit to the end, so it cannot hide this way.
+    witnessed = [False] * len(entries)
+    for i in range(len(entries) - 1, -1, -1):
+        if state[i] == "match":
+            witnessed[i] = True
+        elif state[i] == "missing" and i + 1 < len(entries) and witnessed[i + 1]:
+            e = {k: v for k, v in entries[i].items() if k not in ("hash", "sig")}
+            witnessed[i] = (entries[i + 1].get("prev") == entries[i]["hash"]
+                            and hashlib.sha256(_body(e).encode()).hexdigest() == entries[i]["hash"])
+    now = time.time()
+    matched = state.count("match")
+    covered = sum(w and s != "match" for w, s in zip(witnessed, state))
+    pending = sum(not w and s == "missing" and now - e["ts"] < lag_s for w, s, e in zip(witnessed, state, entries))
+    bad = [e["hash"][:12] for w, s, e in zip(witnessed, state, entries)
+           if not w and not (s == "missing" and now - e["ts"] < lag_s)]
+    msg = f"{matched} of {len(entries)} entries match the CloudWatch copy"
+    if covered:
+        msg += f"; {covered} never copied (written just before a restart) are fixed by the entry after them"
+    if pending:
+        msg += f"; the newest {pending} are not in CloudWatch yet"
+    if bad:
+        msg += f"; {len(bad)} do not match, first at {bad[0]}"
+    out = {"checked": True, "ok": not bad, "local": len(entries), "matched": matched, "covered_by_next": covered,
+           "not_yet_in_cloudwatch": pending, "unwitnessed": len(bad),
+           "missing_in_cloudwatch": state.count("missing"), "different_in_cloudwatch": state.count("different"),
+           "mirror_failures_since_start": trace.mirror_failures, "message": msg}
     trace._cw_cache = (time.time(), key, out)
     return out
