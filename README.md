@@ -287,8 +287,8 @@ named steward accounts.
   number the venue declares (the demonstration assumes 60 m² per gate), not something a camera
   measures; approach routes, alternative entrances and the consequences of closing one are not
   modelled. Its forecast errors and queue factors were measured on one simulated venue and carried
-  to the other nine. An earlier version ranked actions on the zone's peak alone and held a median
-  of 912 people outside; an outside review caught it.
+  to the other nine. Ranked on the zone's peak alone, the same evenings would have held a median
+  of 912 people outside.
 - The camera zone replays a recording: approving an action there records the decision only.
 
 ## Responsible use

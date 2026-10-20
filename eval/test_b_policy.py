@@ -15,9 +15,9 @@ Two choices are scored on the same simulations:
 - the console's venue-wide rule (breathingroom.choice), which judges each action on the zone and
   on the waiting area before the gates it restricts: zone peak plus the largest error that
   action's forecast made on the reference venue, and people held times the largest factor by
-  which the queue forecast fell short there, over the waiting area (GATE_DEPTH_M deep across the
-  street before each gate, the console's assumption for its own venue);
-- the earlier rule, on the zone's peak alone (least disruptive within 0.25/m2 of the lowest peak
+  which the queue forecast fell short there, over the waiting area (GATE_DEPTH_M deep across each
+  gate's half of the street, the console's assumption for its own venue);
+- a zone-only rule, on the zone's peak alone (least disruptive within 0.25/m2 of the lowest peak
   plus mean error), kept for comparison: it meters both gates and holds hundreds outside.
 Each is scored on what the twin then did: the zone's peak, the people held, their density in
 the waiting area, and the densest of the two places against the best action in hindsight.

@@ -135,8 +135,8 @@ Dashed red paths are the failure branches.*
   lowest zone peak; if none is safe, the one whose densest place, zone or waiting area, is lowest,
   the gentlest within 0.25/m². An action that holds people back where no waiting area is declared
   is never safe. The deterministic planner, the guard and the evaluation (6.4b) use the same code.
-  This answers an outside review of the first version, which ranked actions on the zone's peak
-  alone and so kept the zone clear by holding hundreds of people before the gates.
+  Ranking on the zone's peak alone would keep the zone clear by holding hundreds of people before
+  the gates (6.4b).
 - **Failure handling.** A failing tool is reported to the model, never raised. An unreachable
   model hands the episode to a deterministic planner that calls the same tools. A proposal nobody
   decides on expires after 4 minutes. An approved action that does not bend the measured curve
@@ -230,9 +230,9 @@ footage is tested for counting only (6.6).
 
 Heads counted across the gate line in run 150 by the console's pipeline: 56 people, the same 56
 as the trajectories; mean 1.00 people/s against 1.00, error 0.04 people/s, r = 0.947 on 5 s
-averages. At half resolution a morphological opening erased the smallest caps and the count fell
-to 55; the half-size detector keeps the area test and drops the opening. A first version that
-integrated the fields' flux through the line read 40% low; counting matched heads replaced it.
+averages. At half resolution a morphological opening erases the smallest caps and the count
+falls to 55, so the half-size detector keeps the area test and has no opening. Integrating the
+fields' flux through the line instead reads 40% low, which is why heads are matched and counted.
 
 ![E1 outflow](figures/fig_e1_outflow.png)
 
@@ -299,8 +299,8 @@ only, as the console does.
 
 Building the twin exposed two simulator problems: with the collision-free speed model, streams
 that cross at an exit gridlock, and a person bound for one door who is pushed into the other
-keeps pressing against the wall between them. A side passage first planned for the twin made
-the crowd worse when opened; it was replaced by a second exit door next to the main exit, and
+keeps pressing against the wall between them. A side passage halfway along the street makes the
+crowd worse when opened, so the twin's extra exit is a second door next to the main exit, and
 people near the exits use the open door they are lined up with.
 
 ### 6.4b Under the console's alert policy, and the crowd an action moves upstream
@@ -325,11 +325,11 @@ venue, the seven layouts above, and two with a second door wider than usual (2.8
   forecast carries the inflow seen at the warning, and the surge kept rising. The console prices
   each queue with the largest factor seen on the reference venue (2.87 metering both, 2.29
   metering one, 1.58 holding).
-- **Zone only against venue-wide.** The first console ranked actions on the zone's peak alone
-  (least disruptive within 0.25/m² of the lowest peak plus mean error). It metered both gates in
-  30 of 30 evenings: the zone stayed under 0.69/m², but a median of 912 people waited outside, up
-  to 9.7/m² in the waiting area, far denser than the zone it protected. The venue-wide rule
-  (section 5), now in the console, opens the second door in 30 of 30: the zone peaks at 3.01/m²
+- **Zone only against venue-wide.** A rule that ranks actions on the zone's peak alone (least
+  disruptive within 0.25/m² of the lowest peak plus mean error) meters both gates in 30 of 30
+  evenings: the zone stays under 0.69/m², but a median of 912 people wait outside, up to 9.7/m²
+  in the waiting area, far denser than the zone it protects. The console's venue-wide rule
+  (section 5) opens the second door in 30 of 30: the zone peaks at 3.01/m²
   at most, under WARN in all 30; a median of 10 people wait outside (up to 268, 2.2/m², in three
   evenings of the short street whose gates back up on their own: 499 to 523 wait there with no
   action). In all 30 its choice had the lowest density anywhere, zone or waiting area, of the
@@ -400,26 +400,23 @@ episode starts with the reasons the tier policy gives for the zone's measured st
 | Entrance E1, camera knocked | 6 | recalibration request | 6/6, median 3 tool calls and 7 s |
 | Zone C, model endpoint unreachable | 2 | deterministic planner | 2/2, the same door under the same rule |
 
-20 of 20 overall, run after the guards moved into code (20 October); a crowd episode takes a
+20 of 20 overall; a crowd episode takes a
 median 10 tool calls and 11 to 22 s; radio messages have 16 to 23 words. Four calls were refused:
 twice the model proposed an announcement at E1 before calling `cross_check_count` and was told
 so, and twice it asked to forecast an announcement in Zone C, where the catalogue has none. The
 model forecast 1 to 4 actions per episode; code forecast the rest of the catalogue before
 judging each proposal (1 to 4 per episode), so every proposal was compared with every action.
 One message gave the hotspot's own density ("5.6 /m² at centre 1.4 m before gate"), which the
-kind-aware check accepts because `locate_pushing` returned it as a density. In the run before
-the guards moved into code (16 October), the same scenarios gave 20 of 20 with the filling zone
-metered at both gates, the choice of the earlier zone-only rule. In the run before it, one of the six filling-zone episodes closed with
-`no_action`, reading an action's forecast (0.55/m²) as the zone's future while `get_zone_state`
-said 9.1 minutes to 4.5/m². Code now refuses `no_action` while the zone's own state says it
-reaches 4.5/m² within 10 minutes, unless a no-action forecast shows it stays below. Earlier runs showed what the guards are for: the model wrote "stable for 10 minutes"
-when no tool returned 10 (now refused), once took the minutes left from an action's forecast
-instead of the zone's state (the prompt now names the field), once proposed holding both gates
-when metering them had the same predicted peak (now refused in favour of the less disruptive
-action), and once closed a pushing episode without proposing the announcement its own reason
-called for (16 of 17 before `locate_pushing`; the prompt now asks the agent to locate pushing
-before it chooses). One earlier episode met an out-of-memory error inside `check_camera`; the
-agent treated the camera as unverified and asked for recalibration.
+kind-aware check accepts because `locate_pushing` returned it as a density.
+
+What each guard is for, from what a model can get wrong: closing a filling zone with
+`no_action` by reading an action's forecast (0.55/m²) as the zone's future while
+`get_zone_state` says 9.1 minutes to 4.5/m² (refused unless a no-action forecast shows the zone
+stays below); writing "stable for 10 minutes" when no tool returned 10; taking the minutes left
+from an action's forecast instead of the zone's state; proposing to hold both gates when a
+gentler action is as safe; proposing before the camera and the count are confirmed. A tool that
+fails inside an episode (for instance out of memory in `check_camera`) is reported to the model,
+and an unverified camera leads to a recalibration request, not a proposal.
 
 ### 6.6 Test D: counting on oblique street CCTV
 
@@ -448,14 +445,13 @@ calibration points is known for each.
 | ALIKED + LightGlue, USAC MAGSAC | 2 mm, 5 mm | 3,046 ms | trust decision |
 | Both, as the console runs them | | | **84 of 84** moves above 0.25 m flagged, **0** false alarms in 132 checks |
 
-The first version of the screen used a rotation-plus-shift model. It measured rolls well and
-read a 2% zoom or tilt as steady; the homography model measures all three. On the console the
+A rotation-plus-shift model measures rolls well but reads a 2% zoom or tilt as steady; the
+homography model measures all three. On the console the
 screen runs every 3 s and ALIKED + LightGlue run only when the screen sees motion, when trust is
 being restored, and every 10 minutes. A screen that measures a shift beyond the tolerance
 withdraws trust at once (on test E it does so for 84 of 84 moves above 0.25 m and for none of the
 132 below); only ALIKED + LightGlue give trust back. On the live t4g.small a knock is flagged 2.7
-to 4.9 s after it happens (three trials through the API). The earlier watchdog ran ALIKED +
-LightGlue every 30 s on the instance.
+to 4.9 s after it happens (three trials through the API).
 
 ### 6.8 Speed
 
@@ -481,24 +477,23 @@ On Graviton the classic DNN engine runs DM-Count 5.5 times faster than the new g
 returns the same count; on the AMD Zen 5 desktop the new engine is faster (6.9 s against 9.5 s
 for the whole frame at 1280 px on two threads). `density.DEFAULT_ENGINE` picks the engine by
 architecture. With the classic engine and the zone crop, one camera with DM-Count every 5 s needs
-873 ms per second on the t4g.small (3,965 ms before). In the live console, an agent's
-`cross_check_count` went from 75 s to under 6 s, and `check_camera` from 23 s to under 0.3 s.
+873 ms per second on the t4g.small. In the live console an agent's `cross_check_count` takes
+under 6 s and `check_camera` under 0.3 s. Measured with both models free to run at once on
+2 vCPUs and 2 GB, DM-Count on the whole frame with the new engine, and the features check every
+30 s, they took 75 s and 23 s.
 
 ### 6.9 The console
 
 axe-core (WCAG 2.1 AA and best practice) reports no violations on the console at 1600 px and 390 px
-wide, or on the evening report. The first audit found three problems: low contrast on the WARN
-badge (3.6:1) and the grey source lines (3.1:1), no level-one heading, and a scrolling record that
-a keyboard could not reach.
+wide, or on the evening report, including contrast of the tier badges, a level-one heading and
+a scrolling record a keyboard can reach.
 
 `tools/ui_smoke.py` drives the real console in headless Chromium: knock the camera, wait for the
 untrusted tile and the recalibration request, restore, wait for a proposal on Zone C, approve,
-and wait for the verification. Console errors fail the run. Driving it found five defects that
-the API tests did not: the replay seeking crashed FFmpeg; a pending proposal blocked any new
-investigation, so a knocked camera went unnoticed for four minutes (fixed with the periodic
-watchdog); the driver approved the recording's proposal, which can never verify; the forecasts in
-one episode were computed seconds apart; and metering one gate was forecast as if it capped the
-whole inflow.
+and wait for the verification. Console errors fail the run. It checks what API tests cannot:
+that the replay decodes without seeking, that a knocked camera is flagged while a proposal is
+pending, that every forecast in an episode uses the same frozen history, and that the card a
+steward approves is the one that verifies.
 
 ## 7. AWS deployment
 
