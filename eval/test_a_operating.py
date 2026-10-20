@@ -10,6 +10,12 @@
    pushing counts where the crowd reaches 2/m2. On these overhead runs DM-Count reads density
    2.4/m2 low (eval/results/test_a_scores.json), so that condition, on its own density, removes
    most of its pushing; the index alone is the fair reading of that pathway.
+3. What does the console's own threshold do, and how often is a stretch of pushing missed
+   altogether? The console alerts at the threshold set at the Youden point on runs 030/040/050
+   (policy.Thresholds.warn_pressure; eval/results/test_a_threshold.json), which opens an
+   investigation and never acts by itself. Besides person-seconds, each operating point is scored
+   on episodes: a person's run of at least 2 consecutive seconds rated pushing is detected if any
+   of its seconds is flagged; walking is reported as flagged seconds per minute of walking.
 
     python eval/test_a_operating.py
 """
@@ -31,6 +37,7 @@ SOURCES = {"video (heads)": ("rho_video_heads", "P_video_heads"), "video (DM-Cou
 TARGETS = (0.05, 0.10, 0.15, 0.20)
 PACKED = 2.0  # policy.Thresholds.watch_rho: pushing counts where the crowd reaches this density
 PERSIST = 3  # seconds
+CONSOLE: dict = {}
 
 
 def loro(d: pd.DataFrame, X: np.ndarray, y: np.ndarray) -> np.ndarray:
@@ -52,7 +59,31 @@ def gain_ci(d: pd.DataFrame, y: np.ndarray, a: np.ndarray, b: np.ndarray, n: int
     return [float(np.percentile(out, 2.5)), float(np.percentile(out, 97.5))]
 
 
+def episodes(d: pd.DataFrame, y: np.ndarray, flag: np.ndarray, runs: set[int]) -> dict:
+    """Pushing episodes (2 s or longer, per person) with at least one flagged second, on `runs`,
+    and flagged seconds per minute of walking there."""
+    hit, delay, walk_flags, walk_s = [], [], 0, 0
+    sub = d[d.run.isin(runs)]  # d has a fresh RangeIndex: its index is the row position in y and flag
+    for _, idx in sub.groupby(["run", "pid"]).indices.items():
+        pos = sub.index.values[idx]
+        yy, ff = y[pos], flag[pos]
+        for seg in np.split(np.arange(len(yy)), np.flatnonzero(np.diff(yy)) + 1):
+            if yy[seg[0]] == 1 and len(seg) >= 2:
+                k = np.flatnonzero(ff[seg])
+                hit.append(len(k) > 0)
+                if len(k):
+                    delay.append(int(k[0]))
+            elif yy[seg[0]] == 0:
+                walk_flags += int(ff[seg].sum())
+                walk_s += len(seg)
+    return {"pushing_episodes": len(hit), "episodes_detected": float(np.mean(hit)) if hit else None,
+            "median_seconds_to_first_flag": float(np.median(delay)) if delay else None,
+            "walking_flags_per_min": 60.0 * walk_flags / max(walk_s, 1)}
+
+
 def main() -> dict:
+    global CONSOLE
+    CONSOLE = json.loads((RES / "test_a_threshold.json").read_text())
     d = pd.read_csv(RES / "test_a_rows.csv").sort_values(["run", "pid", "frame"]).reset_index(drop=True)
     y = (d.rating >= 3).astype(int).values
     cal, ev = d.run.isin(CAL).values, d.run.isin(EVAL).values
@@ -77,7 +108,12 @@ def main() -> dict:
                 flag = score >= thr
                 s[rule].append({"target_walking_flagged": target, "threshold": thr,
                                 "eval_pushing_flagged": float(flag[ev & (y == 1)].mean()),
-                                "eval_walking_flagged": float(flag[ev & (y == 0)].mean())})
+                                "eval_walking_flagged": float(flag[ev & (y == 0)].mean()),
+                                **episodes(d, y, flag, EVAL)})
+        thr = CONSOLE[pc]["threshold"]  # the console's alert threshold, set at the Youden point on CAL
+        flag = Pm >= thr
+        s["console_threshold"] = {"threshold": thr, "eval_pushing_flagged": float(flag[ev & (y == 1)].mean()),
+                                  "eval_walking_flagged": float(flag[ev & (y == 0)].mean()), **episodes(d, y, flag, EVAL)}
         out["sources"][name] = s
     (RES / "test_a_operating.json").write_text(json.dumps(out, indent=2))
     return out
@@ -91,4 +127,9 @@ if __name__ == "__main__":
         for rule in ("index_3s", "index_3s_where_packed"):
             for p in s[rule]:
                 print(f"   {rule:22s} set for {p['target_walking_flagged']:.0%} walking flagged: held-out pushing flagged "
-                      f"{p['eval_pushing_flagged']:.0%}, walking flagged {p['eval_walking_flagged']:.0%}")
+                      f"{p['eval_pushing_flagged']:.0%}, walking flagged {p['eval_walking_flagged']:.0%}; "
+                      f"episodes detected {p['episodes_detected']:.0%} of {p['pushing_episodes']}")
+        c = s["console_threshold"]
+        print(f"   console threshold {c['threshold']:.3f}: pushing flagged {c['eval_pushing_flagged']:.0%}, walking "
+              f"{c['eval_walking_flagged']:.0%}; episodes detected {c['episodes_detected']:.0%} of {c['pushing_episodes']}, "
+              f"{c['walking_flags_per_min']:.1f} flagged walking seconds per minute")

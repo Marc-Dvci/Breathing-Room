@@ -12,9 +12,11 @@ Each episode starts with the reasons the tier policy gives for the zone's measur
 
 Scored per episode: finished with a decision; the correct kind of decision (a proposal for
 crowd states, a recalibration request for the knocked camera); a proposal cites a forecast of
-its own episode; the chosen action's predicted peak is within 0.1/m2 of the lowest compared;
-camera checked before proposing; for pushing, whether the agent located it and whether the
-radio message says where; refused tool calls (guards that fired); steps and seconds.
+its own episode; the venue-wide rule (breathingroom.choice) accepts the proposed action among
+every action in the catalogue; camera checked before proposing; for pushing, whether the agent
+located it and whether the radio message says where; refused tool calls (guards that fired, with
+their messages); steps and seconds. The guards are code, so a proposal that reached the steward
+has passed them; the refusals show how often the model needed them.
 
     AWS_PROFILE=otl-agent python eval/test_c_agent.py --repeats 5
 """
@@ -34,6 +36,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 os.environ.setdefault("BR_ISOLATE_MODELS", "1")  # each repeat builds a camera zone: keep the models out of this process
 from breathingroom import agent as ag  # noqa: E402
+from breathingroom import choice  # noqa: E402
 from breathingroom.policy import Tier, ZoneReading  # noqa: E402
 from breathingroom.runtime import CATALOGUE, CameraZone, Runtime  # noqa: E402
 from breathingroom.trace import Trace  # noqa: E402
@@ -78,14 +81,20 @@ def score(ep: ag.Episode, expect: str) -> dict:
     out["correct_decision"] = out["decision"] == expect
     out["checked_camera_first"] = "check_camera" in tools and (
         "propose_action" not in tools or tools.index("check_camera") < tools.index("propose_action"))
+    out["refusals"] = [f"{c['tool']}: {c['result']['error'][:160]}" for c in ep.calls
+                       if isinstance(c["result"], dict) and "error" in c["result"]]
     if ep.proposal:
         p = ep.proposal
-        peaks = [a["peak"] for a in p.alternatives if a["kind"] != "none"]
+        options = [ep._option(k) for k, v in ep.forecast_actions.items() if v["kind"] != "none"]
+        ch = choice.choose(options)
         out["cites_own_forecast"] = p.forecast_id in ep.forecasts
-        out["chose_lowest_peak"] = p.predicted["peak_density"] <= min(peaks) + 0.1
+        out["accepted_by_venue_rule"] = p.forecast_id in {o.key for o in ch.acceptable}
         out["action"] = f"{p.action['kind']}:{p.action['target']}"
         out["radio"] = p.radio
-        out["compared"] = len(peaks)
+        out["radio_words"] = len(p.radio.split())
+        out["compared"] = len(options)
+        out["forecast_by_planner"] = sum(1 for c in ep.calls if c["tool"] == "forecast_action" and c.get("by") != "code")
+        out["forecast_by_guard"] = sum(1 for c in ep.calls if c["tool"] == "forecast_action" and c.get("by") == "code")
     loc = [h for c in ep.calls if c["tool"] == "locate_pushing" for h in (c["result"].get("hotspots") or [])]
     out["located_pushing"] = bool(loc)
     if loc and ep.proposal:
@@ -146,7 +155,8 @@ def main() -> None:
             "correct_decision": sum(r["correct_decision"] for r in rs),
             "checked_camera_first": sum(r["checked_camera_first"] for r in rs),
             "proposals_citing_own_forecast": sum(r.get("cites_own_forecast", False) for r in props),
-            "proposals_lowest_peak": sum(r.get("chose_lowest_peak", False) for r in props),
+            "proposals_accepted_by_venue_rule": sum(r.get("accepted_by_venue_rule", False) for r in props),
+            "max_radio_words": max((r.get("radio_words", 0) for r in props), default=None),
             "refused_calls_total": sum(r["refused_calls"] for r in rs),
             "median_steps": float(np.median([r["steps"] for r in rs])),
             "median_seconds": float(np.median([r["seconds"] for r in rs])),

@@ -58,6 +58,12 @@ WORK_SCALE = float(os.environ.get("BR_WORK_SCALE", "0.5"))  # camera frames are 
 HEAVY = threading.Semaphore(1)
 # The second counter sees only the zone's bounding box, at half the undistorted resolution.
 COUNT_SCALE = 0.5
+# Camera crops shown on proposal cards are kept in memory only, at most this many, this long:
+# long enough for a steward to decide (a proposal expires after PROPOSAL_TTL_S) and to look back.
+EVIDENCE_KEEP = 24
+EVIDENCE_TTL_S = float(os.environ.get("BR_EVIDENCE_TTL_S", "900"))
+# A zone whose source has produced nothing for this long is not trusted: its numbers are stale.
+FEED_STALE_S = float(os.environ.get("BR_FEED_STALE_S", "10"))
 
 
 def zone_crop(und: np.ndarray, H_w2u: np.ndarray, rect: tuple, scale: float = COUNT_SCALE):
@@ -332,7 +338,7 @@ class CameraZone:
         self.last_confirm_t = 0.0  # wall clock of the last ALIKED + LightGlue check
         self.last_P: np.ndarray | None = None
         self.last_rho: np.ndarray | None = None
-        self.evidence: dict[str, bytes] = {}
+        self.evidence: dict[str, tuple[float, bytes]] = {}  # id -> (wall time kept, JPEG), in memory only
         self.screen = None
         self.screen_frames = [self.reader.read(int(i)) for i in np.linspace(0, min(1000, self.n_frames - 3), 9)]
 
@@ -641,23 +647,56 @@ class CameraZone:
         ok, buf = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 85])
         eid = "ev_" + uuid.uuid4().hex[:10]
         with self.frame_lock:
-            self.evidence[eid] = buf.tobytes()
-            for old in list(self.evidence)[:-24]:
+            self.evidence[eid] = (time.time(), buf.tobytes())
+            for old in list(self.evidence)[:-EVIDENCE_KEEP]:
                 del self.evidence[old]
         return eid
 
+    def evidence_image(self, eid: str) -> bytes | None:
+        """A crop is served while it is younger than EVIDENCE_TTL_S, and never written to disk."""
+        with self.frame_lock:
+            now = time.time()
+            for old in [k for k, (t, _) in self.evidence.items() if now - t > EVIDENCE_TTL_S]:
+                del self.evidence[old]
+            kept = self.evidence.get(eid)
+        return kept[1] if kept else None
 
-def forecast_skill(path: Path = ROOT / "eval" / "results" / "test_b_twin.json") -> dict[str, float]:
-    """Mean amount (people/m2) by which the twin's peak exceeded the forecast peak, per action,
-    over the test B seeds (eval/test_b_twin.py). Proposals rank actions on peak + this error."""
+
+RESULTS = ROOT / "eval" / "results"
+
+
+def forecast_skill(path: Path = RESULTS / "test_b_twin.json") -> dict[str, dict[str, float]]:
+    """Per action, the mean and the largest amount (people/m2) by which the twin's peak exceeded
+    the forecast peak over the test B seeds (eval/test_b_twin.py). Proposals rank actions on peak
+    + the mean error; the venue-wide rule (choice.py) judges safety on peak + the largest."""
     try:
-        peaks = json.loads(path.read_text())["summary"]["peak_by_action"]
-    except (OSError, KeyError, ValueError):
+        seeds = [s["actions"] for s in json.loads(path.read_text())["seeds"].values() if s.get("actions")]
+    except (OSError, KeyError, ValueError, AttributeError):
         return {}
-    return {k: round(max(0.0, v["simulated_mean"] - v["predicted_mean"]), 2) for k, v in peaks.items()}
+    out = {}
+    for k in seeds[0] if seeds else []:
+        d = [s[k]["simulated_peak"] - s[k]["predicted_peak"] for s in seeds if k in s]
+        out[k] = {"mean": round(max(0.0, float(np.mean(d))), 2), "max": round(max(0.0, float(np.max(d))), 2)}
+    return out
+
+
+def queue_skill(path: Path = RESULTS / "test_b_policy.json") -> dict[str, float]:
+    """Per action that holds people back, the largest ratio of the queue the twin built before
+    the gates to the queue forecast, on the reference venue only (eval/test_b_policy.py)."""
+    try:
+        runs = json.loads(path.read_text())["venues"]["reference venue"].values()
+    except (OSError, KeyError, ValueError, AttributeError):
+        return {}
+    out: dict[str, float] = {}
+    for r in runs:
+        for k, a in r.get("actions", {}).items():
+            if a.get("predicted_held", 0) >= 1:
+                out[k] = round(max(out.get(k, 1.0), a["simulated_held"] / a["predicted_held"]), 2)
+    return out
 
 
 SKILL = forecast_skill()
+QUEUE_SKILL = queue_skill()
 _TWIN_SKILL_KEYS = {("meter_entry", "both gates"): "meter both gates to 150/min", ("meter_entry", "gate A"): "meter gate A to 60/min",
                     ("meter_entry", "gate B"): "meter gate A to 60/min", ("open_exit", "second exit door"): "open second exit door",
                     ("hold_entry", "both gates"): "hold both gates", ("none", ""): "no action"}
@@ -667,23 +706,31 @@ def _with_skill(zone_actions: list[dict]) -> list[dict]:
     for a in zone_actions:
         key = _TWIN_SKILL_KEYS.get((a["kind"], a.get("target", "")))
         if key in SKILL:
-            a["forecast_error"] = SKILL[key]
+            a["forecast_error"] = SKILL[key]["mean"]
+            a["forecast_error_max"] = SKILL[key]["max"]
+        if key in QUEUE_SKILL:
+            a["queue_factor"] = QUEUE_SKILL[key]
     return zone_actions
 
 
+# Waiting areas are venue inputs: the space before each entrance where the people an action
+# holds back stand. The demonstration assumes 60 m2 before each gate of Station Road (half the
+# street's 6 m width, 20 m deep) and 40 m2 of corridor feeding the E1 entrance.
+GATE_AREA_M2 = 60.0
 CATALOGUE = VenueCatalogue({
     TwinZone.name: _with_skill([
-        {"kind": "meter_entry", "target": "gate A", "rate_per_min": 60, "share": 0.5, "camera": "cam-C1"},
-        {"kind": "meter_entry", "target": "gate B", "rate_per_min": 60, "share": 0.5},
-        {"kind": "meter_entry", "target": "both gates", "rate_per_min": 150},
+        {"kind": "meter_entry", "target": "gate A", "rate_per_min": 60, "share": 0.5, "camera": "cam-C1",
+         "holding_area_m2": GATE_AREA_M2},
+        {"kind": "meter_entry", "target": "gate B", "rate_per_min": 60, "share": 0.5, "holding_area_m2": GATE_AREA_M2},
+        {"kind": "meter_entry", "target": "both gates", "rate_per_min": 150, "holding_area_m2": 2 * GATE_AREA_M2},
         {"kind": "open_exit", "target": "second exit door", "width_m": tw.SIDE_WIDTH},
-        {"kind": "hold_entry", "target": "both gates"},
+        {"kind": "hold_entry", "target": "both gates", "holding_area_m2": 2 * GATE_AREA_M2},
     ]),
     CameraZone.name: [
         {"kind": "send_steward", "target": "entrance gate", "camera": "cam-E1"},
         {"kind": "announce", "target": "please stop pushing, the gate is open"},
-        {"kind": "meter_entry", "target": "queue feed", "rate_per_min": 30},
-        {"kind": "hold_entry", "target": "queue feed"},
+        {"kind": "meter_entry", "target": "queue feed", "rate_per_min": 30, "holding_area_m2": 40.0},
+        {"kind": "hold_entry", "target": "queue feed", "holding_area_m2": 40.0},
     ],
 })
 
@@ -711,6 +758,28 @@ class Runtime:
         self.evenings = 1
         self.last_view = time.time()
         self.paused_since: float | None = None
+        self.last_ok: dict[str, float] = {}  # wall time of each zone's last processed second
+        self.feed_lost: dict[str, str] = {}  # zone -> why its numbers are stale
+
+    def feed_status(self, name: str) -> str:
+        lost = self.feed_lost.get(name)
+        return f"lost: {lost}" if lost else "live"
+
+    def _feed(self, name: str, ok: bool, error: str = "") -> None:
+        """Record whether a zone's source produced its last second. A zone silent for FEED_STALE_S
+        is marked lost: the tier policy treats it as untrusted, a proposal cannot rest on it, and
+        /health reports it so a monitor outside the instance can raise an alarm."""
+        now = time.time()
+        if ok:
+            self.last_ok[name] = now
+            if self.feed_lost.pop(name, None) is not None:
+                self.trace.write("feed", zone=name, status="restored")
+            return
+        silent = now - self.last_ok.get(name, now)
+        if silent >= FEED_STALE_S and name not in self.feed_lost:
+            self.feed_lost[name] = f"no data for {silent:.0f} s ({error})" if error else f"no data for {silent:.0f} s"
+            self.trace.write("feed", zone=name, status="lost", reason=self.feed_lost[name])
+            self.evaluate(name)
 
     # -- zones -----------------------------------------------------------------------
     def zones(self) -> dict:
@@ -730,7 +799,7 @@ class Runtime:
                 return {"zone": zone, "source": s.source, "density": round(s.rho, 2), "level_of_service": s.los,
                         "people": round(s.n), "area_m2": s.area_m2, "pushing_index": round(s.pressure, 4),
                         "tier": s.tier, "trend_per_min": round(fc.net_rate_pps * 60, 1),
-                        "outflow_per_min": round(s.outflow_pps * 60, 1),
+                        "outflow_per_min": round(s.outflow_pps * 60, 1), "feed": self.feed_status(zone),
                         "minutes_to_4_5": None if fc.seconds_to_threshold is None else round(fc.seconds_to_threshold / 60, 1)}
 
         def check_camera(camera: str) -> dict:
@@ -781,13 +850,15 @@ class Runtime:
         with self.lock:
             s = z.state
             s.minutes_to_act = None if fc.seconds_to_threshold is None else fc.seconds_to_threshold / 60
-            d = self.policy.decide(ZoneReading(name, s.t, s.rho, s.pressure, s.minutes_to_act, s.trusted, s.trust_reason,
-                                               s.rho_peak))
+            lost = self.feed_lost.get(name)
+            d = self.policy.decide(ZoneReading(name, s.t, s.rho, s.pressure, s.minutes_to_act, s.trusted and not lost,
+                                               f"feed lost, {lost}" if lost else s.trust_reason, s.rho_peak))
             if d.tier.name != s.tier:
                 self.trace.write("tier", zone=name, t=round(s.t, 1), tier=d.tier.name, reasons=d.reasons,
                                  rho=round(s.rho, 2), pressure=round(s.pressure, 4))
             s.tier, s.reasons = d.tier.name, d.reasons
-            if d.tier >= Tier.WARN and name not in self.active_episode and not self._pending(name):
+            # stale numbers are shown as such and reported by /health; the assistant does not investigate them
+            if d.tier >= Tier.WARN and not lost and name not in self.active_episode and not self._pending(name):
                 self._start_episode(name, d.tier, d.reasons)
 
     def tick(self) -> None:
@@ -978,7 +1049,23 @@ class Runtime:
                 "twin_timing_ms": round(float(np.mean(self.twin.timing)) * 1000) if self.twin.timing else None,
             }
 
+    def health(self) -> dict:
+        """For a monitor outside the instance: every zone has produced data within FEED_STALE_S,
+        or the console is paused because nobody is watching it."""
+        now = time.time()
+        if self.paused_since is not None:
+            return {"ok": True, "running": self.running, "paused": True, "zones": {n: "paused" for n in self.zones()}}
+        zones = {}
+        for n in self.zones():
+            silent = now - self.last_ok.get(n, now)
+            zones[n] = (f"lost: {self.feed_lost[n]}" if n in self.feed_lost
+                        else f"stale: no data for {silent:.0f} s" if silent >= FEED_STALE_S else "live")
+        return {"ok": self.running and all(v == "live" for v in zones.values()), "running": self.running,
+                "paused": False, "zones": zones}
+
     def _zone_loop(self, name: str) -> None:
+        fails = 0
+        self.last_ok.setdefault(name, time.time())
         while self.running:
             if self._idle():
                 time.sleep(1.0)
@@ -987,13 +1074,18 @@ class Runtime:
             try:
                 z = self.zones()[name]
                 z.tick(1.0)
+                self._feed(name, True)
+                fails = 0
                 self.evaluate(name)
                 with self.lock:
                     self._verify()
                 if name == self.twin.name:
                     self._maybe_restart_evening()
             except Exception as e:
-                self.trace.write("error", where=f"tick {name}", error=f"{type(e).__name__}: {e}")
+                fails += 1
+                if fails == 1 or fails % 60 == 0:  # the first failure, then once a minute while it lasts
+                    self.trace.write("error", where=f"tick {name}", error=f"{type(e).__name__}: {e}", failures=fails)
+                self._feed(name, False, f"{type(e).__name__}: {e}")
                 time.sleep(1.0)
             dt = time.perf_counter() - t0
             speed = self.speed if name == self.twin.name else 1.0

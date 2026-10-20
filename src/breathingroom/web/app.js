@@ -155,9 +155,10 @@ function proposalCard(p) {
       <div><div class="v">${p.predicted.peak_density.toFixed(1)}</div><div class="l">predicted peak in 10 min, people/m², with this action${p.predicted.at_approval ? " (forecast again at approval)" : ""}</div></div>
       <div><div class="v">${none ? none.peak.toFixed(1) : "–"}</div><div class="l">without action</div></div>
     </div>
-    <table><thead><tr><th>Action compared</th><th title="predicted peak density in 10 minutes, people/m²">Peak</th><th title="how far the twin's peak exceeded this forecast, on average, in testing">Tested error</th><th>Min to 4.5</th><th title="people the action keeps waiting before the entrance within 10 minutes: the crowd it moves upstream. A lower bound: in testing the queue was 1.6 to 2.8 times this">Held outside, at least</th></tr></thead><tbody>
-      ${alts.map((a) => `<tr class="${a.forecast_id === p.forecast_id ? "chosen" : ""}"><td>${esc(actionLabel(a))}</td><td>${a.peak.toFixed(1)}</td><td>${a.forecast_error != null ? "+" + a.forecast_error.toFixed(1) : "–"}</td><td>${a.minutes_to_threshold ?? "–"}</td><td>${a.held_at_entrance ? a.held_at_entrance : "–"}</td></tr>`).join("")}
+    <table><thead><tr><th>Action compared</th><th title="predicted peak density in 10 minutes, people/m²">Peak</th><th title="how far the twin's peak exceeded this forecast, on average, in testing">Tested error</th><th>Min to 4.5</th><th title="people the action keeps waiting before the entrance within 10 minutes: the crowd it moves upstream, priced with the largest shortfall of the queue forecast in testing">Held outside</th><th title="those people over the waiting area the venue declared before that entrance, people/m²">Waiting area</th></tr></thead><tbody>
+      ${alts.map((a) => `<tr class="${a.forecast_id === p.forecast_id ? "chosen" : ""}"><td>${esc(actionLabel(a))}</td><td>${a.peak.toFixed(1)}</td><td>${a.forecast_error != null ? "+" + a.forecast_error.toFixed(1) : "–"}</td><td>${a.minutes_to_threshold ?? "–"}</td><td>${a.held_outside_worst ? a.held_outside_worst : "–"}</td><td>${a.held_outside_worst ? (a.waiting_area_density_worst != null ? a.waiting_area_density_worst.toFixed(1) + "/m²" : "not declared") : "–"}</td></tr>`).join("")}
     </tbody></table>
+    ${p.choice && p.choice.reason ? `<div class="why"><b>Venue-wide rule:</b> ${esc(p.choice.reason)}.</div>` : ""}
     ${(p.evidence_images || []).length ? `<div class="evidence">${p.evidence_images.map((e) => `<figure><img src="/api/evidence/${esc(e.id)}.jpg" alt="Camera crop where pushing was located: ${esc(e.side)} side, ${esc(e.metres_before_gate)} m before the gate" loading="lazy"><figcaption>Pushing located: ${esc(e.side)} side, ${esc(e.metres_before_gate)} m before the gate (index ${esc(e.peak_pushing_index)} /s²)</figcaption></figure>`).join("")}</div>` : ""}
     <div class="why">${esc(p.rationale)}</div>
     ${p.replay ? `<div class="note">This zone is a recording. Approving records the decision; the footage cannot change.</div>` : ""}
@@ -219,7 +220,7 @@ function renderSteps(snap) {
   const ep = (pending && snap.episodes.filter((e) => e.zone === pending.zone && e.done).slice(-1)[0]) || snap.episodes.slice(-1)[0];
   $("#stepzone").textContent = ep ? `· ${ep.zone}` : "";
   $("#steps").innerHTML = !ep ? `<li><span></span><span class="res">Nothing to investigate yet.</span></li>` :
-    ep.calls.map((c, i) => `<li><span class="n">${i + 1}</span><span><span class="tool">${esc(c.tool.replaceAll("_", " "))}</span><br><span class="res">${esc(summarise(c))}</span></span><span class="ms">${Math.round(c.ms)} ms</span></li>`).join("");
+    ep.calls.map((c, i) => `<li><span class="n">${i + 1}</span><span><span class="tool">${esc(c.tool.replaceAll("_", " "))}${c.by === "code" ? " · by the guard" : ""}</span><br><span class="res">${esc(summarise(c))}</span></span><span class="ms">${Math.round(c.ms)} ms</span></li>`).join("");
 }
 
 async function renderLog() {
@@ -263,9 +264,26 @@ async function decide(id, verb, btn) {
   tick();
 }
 
+function showSignIn(on) {
+  $("#signin").hidden = !on;
+  $("#console").hidden = on;
+  if (on && document.activeElement !== $("#pin")) $("#pin").focus();
+}
+
+$("#signin").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const r = await fetch("/api/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: $("#pin").value }) });
+  $("#pin").value = "";
+  if (!r.ok) { $("#signinerr").textContent = (await r.json()).detail || "could not sign in"; return; }
+  $("#signinerr").textContent = "";
+  showSignIn(false);
+  tick(); renderLog();
+};
+
 async function tick() {
   try {
     const r = await fetch("/api/state", { cache: "no-store" });
+    if (r.status === 401) { showSignIn(true); return; }  // outside the public demo, only signed-in stewards see the console
     const s = await r.json(); last = s;
     $("#conn").classList.add("on");
     const zc = s.zones["Zone C - Station Road"];

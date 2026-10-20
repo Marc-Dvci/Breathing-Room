@@ -1,0 +1,581 @@
+{
+ "model": "avm",
+ "seeds": [
+  0,
+  1
+ ],
+ "runs": {
+  "reference venue": {
+   "0": {
+    "peak_rho": 4.777777777777778,
+    "cross_4_5_s": 288.0,
+    "warn_s": 96.0,
+    "act_s": 125.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.575292059365075,
+      "simulated_peak": 3.2777777777777777,
+      "simulated_held": 86.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.6252954755634477,
+      "simulated_peak": 0.5777777777777777,
+      "simulated_held": 968.0
+     }
+    },
+    "warn_lead_s": 192.0,
+    "act_lead_s": 163.0,
+    "wall_s": 89.4
+   },
+   "1": {
+    "peak_rho": 4.833333333333333,
+    "cross_4_5_s": 286.0,
+    "warn_s": 95.0,
+    "act_s": 125.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.5441367521343846,
+      "simulated_peak": 3.3,
+      "simulated_held": 80.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.5877777705309464,
+      "simulated_peak": 0.5666666666666667,
+      "simulated_held": 966.0
+     }
+    },
+    "warn_lead_s": 191.0,
+    "act_lead_s": 161.0,
+    "wall_s": 92.1
+   }
+  },
+  "short and narrow": {
+   "0": {
+    "peak_rho": 4.74,
+    "cross_4_5_s": 245.0,
+    "warn_s": 85.0,
+    "act_s": 104.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.5129391891891892,
+      "simulated_peak": 3.3,
+      "simulated_held": 140.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.574999999999781,
+      "simulated_peak": 0.5,
+      "simulated_held": 780.0
+     }
+    },
+    "warn_lead_s": 160.0,
+    "act_lead_s": 141.0,
+    "wall_s": 55.7
+   },
+   "1": {
+    "peak_rho": 4.74,
+    "cross_4_5_s": 245.0,
+    "warn_s": 84.0,
+    "act_s": 111.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.5447796934865899,
+      "simulated_peak": 3.28,
+      "simulated_held": 133.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.6152263374465211,
+      "simulated_peak": 0.54,
+      "simulated_held": 776.0
+     }
+    },
+    "warn_lead_s": 161.0,
+    "act_lead_s": 134.0,
+    "wall_s": 54.7
+   }
+  },
+  "long and wide": {
+   "0": {
+    "peak_rho": 4.96875,
+    "cross_4_5_s": 316.0,
+    "warn_s": 91.0,
+    "act_s": 122.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.680002024819143,
+      "simulated_peak": 3.3625,
+      "simulated_held": 220.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.6740753576859136,
+      "simulated_peak": 0.6625,
+      "simulated_held": 1498.0
+     }
+    },
+    "warn_lead_s": 225.0,
+    "act_lead_s": 194.0,
+    "wall_s": 145.9
+   },
+   "1": {
+    "peak_rho": 4.96875,
+    "cross_4_5_s": 320.0,
+    "warn_s": 96.0,
+    "act_s": 125.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.6511998768871256,
+      "simulated_peak": 3.375,
+      "simulated_held": 240.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.6388862667528137,
+      "simulated_peak": 0.6625,
+      "simulated_held": 1522.0
+     }
+    },
+    "warn_lead_s": 224.0,
+    "act_lead_s": 195.0,
+    "wall_s": 143.7
+   }
+  },
+  "narrow exit": {
+   "0": {
+    "peak_rho": 5.417142857142857,
+    "cross_4_5_s": 309.0,
+    "warn_s": 104.0,
+    "act_s": 129.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.32,
+      "simulated_peak": 3.2114285714285713,
+      "simulated_held": 0.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.3449999999948977,
+      "simulated_peak": 0.4114285714285714,
+      "simulated_held": 746.0
+     }
+    },
+    "warn_lead_s": 205.0,
+    "act_lead_s": 180.0,
+    "wall_s": 84.6
+   },
+   "1": {
+    "peak_rho": 5.417142857142857,
+    "cross_4_5_s": 292.0,
+    "warn_s": 99.0,
+    "act_s": 133.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.34285714285714286,
+      "simulated_peak": 3.222857142857143,
+      "simulated_held": 0.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.3606271776887807,
+      "simulated_peak": 0.37714285714285717,
+      "simulated_held": 736.0
+     }
+    },
+    "warn_lead_s": 193.0,
+    "act_lead_s": 159.0,
+    "wall_s": 90.4
+   }
+  },
+  "long, small exit": {
+   "0": {
+    "peak_rho": 5.3028571428571425,
+    "cross_4_5_s": 284.0,
+    "warn_s": 83.0,
+    "act_s": 118.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.4735999999575551,
+      "simulated_peak": 4.011428571428572,
+      "simulated_held": 10.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.4698412110695126,
+      "simulated_peak": 0.48,
+      "simulated_held": 842.0
+     }
+    },
+    "warn_lead_s": 201.0,
+    "act_lead_s": 166.0,
+    "wall_s": 90.1
+   },
+   "1": {
+    "peak_rho": 5.257142857142857,
+    "cross_4_5_s": 287.0,
+    "warn_s": 85.0,
+    "act_s": 105.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.4877796826411306,
+      "simulated_peak": 4.022857142857143,
+      "simulated_held": 21.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.4838662638152237,
+      "simulated_peak": 0.5257142857142857,
+      "simulated_held": 848.0
+     }
+    },
+    "warn_lead_s": 202.0,
+    "act_lead_s": 182.0,
+    "wall_s": 85.5
+   }
+  },
+  "plaza, wide exit": {
+   "0": {
+    "peak_rho": 4.913333333333333,
+    "cross_4_5_s": 296.0,
+    "warn_s": 97.0,
+    "act_s": 115.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.7690360420603393,
+      "simulated_peak": 3.64,
+      "simulated_held": 204.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.7785123456563214,
+      "simulated_peak": 0.76,
+      "simulated_held": 1622.0
+     }
+    },
+    "warn_lead_s": 199.0,
+    "act_lead_s": 181.0,
+    "wall_s": 168.6
+   },
+   "1": {
+    "peak_rho": 4.746666666666667,
+    "cross_4_5_s": 296.0,
+    "warn_s": 101.0,
+    "act_s": 115.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.792802741715548,
+      "simulated_peak": 3.58,
+      "simulated_held": 226.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.801741113079922,
+      "simulated_peak": 0.8266666666666667,
+      "simulated_held": 1642.0
+     }
+    },
+    "warn_lead_s": 195.0,
+    "act_lead_s": 181.0,
+    "wall_s": 172.0
+   }
+  },
+  "short, wide exit": {
+   "0": {
+    "peak_rho": 4.518518518518518,
+    "cross_4_5_s": 354.0,
+    "warn_s": 94.0,
+    "act_s": 108.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.7862388250318837,
+      "simulated_peak": 3.1296296296296298,
+      "simulated_held": 373.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.8032008301397283,
+      "simulated_peak": 0.8518518518518519,
+      "simulated_held": 992.0
+     }
+    },
+    "warn_lead_s": 260.0,
+    "act_lead_s": 246.0,
+    "wall_s": 81.6
+   },
+   "1": {
+    "peak_rho": 4.388888888888889,
+    "cross_4_5_s": null,
+    "warn_s": 94.0,
+    "act_s": 112.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.6552621048419367,
+      "simulated_peak": 3.1666666666666665,
+      "simulated_held": 375.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.67110177404295,
+      "simulated_peak": 0.8148148148148148,
+      "simulated_held": 992.0
+     }
+    },
+    "warn_lead_s": null,
+    "act_lead_s": null,
+    "wall_s": 78.5
+   }
+  },
+  "long street": {
+   "0": {
+    "peak_rho": 4.844444444444444,
+    "cross_4_5_s": 353.0,
+    "warn_s": 120.0,
+    "act_s": 140.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.5660018861472051,
+      "simulated_peak": 3.0296296296296297,
+      "simulated_held": 39.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.5679000975983294,
+      "simulated_peak": 0.6962962962962963,
+      "simulated_held": 1040.0
+     }
+    },
+    "warn_lead_s": 233.0,
+    "act_lead_s": 213.0,
+    "wall_s": 130.2
+   },
+   "1": {
+    "peak_rho": 4.9185185185185185,
+    "cross_4_5_s": 348.0,
+    "warn_s": 108.0,
+    "act_s": 153.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.6050060685845009,
+      "simulated_peak": 2.911111111111111,
+      "simulated_held": 39.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.6084611169425054,
+      "simulated_peak": 0.5851851851851851,
+      "simulated_held": 1006.0
+     }
+    },
+    "warn_lead_s": 240.0,
+    "act_lead_s": 195.0,
+    "wall_s": 124.2
+   }
+  },
+  "wide second door": {
+   "0": {
+    "peak_rho": 5.766666666666667,
+    "cross_4_5_s": 352.0,
+    "warn_s": 123.0,
+    "act_s": 160.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.31666666666666665,
+      "simulated_peak": 0.7,
+      "simulated_held": 0.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.31666666666666665,
+      "simulated_peak": 0.39166666666666666,
+      "simulated_held": 700.0
+     }
+    },
+    "warn_lead_s": 229.0,
+    "act_lead_s": 192.0,
+    "wall_s": 103.1
+   },
+   "1": {
+    "peak_rho": 5.716666666666667,
+    "cross_4_5_s": 354.0,
+    "warn_s": 118.0,
+    "act_s": 158.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.31666666666666665,
+      "simulated_peak": 0.6916666666666667,
+      "simulated_held": 0.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.31666666666666665,
+      "simulated_peak": 0.3333333333333333,
+      "simulated_held": 692.0
+     }
+    },
+    "warn_lead_s": 236.0,
+    "act_lead_s": 196.0,
+    "wall_s": 102.7
+   }
+  },
+  "door wider than exit": {
+   "0": {
+    "peak_rho": 5.462857142857143,
+    "cross_4_5_s": 293.0,
+    "warn_s": 106.0,
+    "act_s": 129.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.3314285714285714,
+      "simulated_peak": 1.6114285714285714,
+      "simulated_held": 0.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.35291005290204247,
+      "simulated_peak": 0.4114285714285714,
+      "simulated_held": 752.0
+     }
+    },
+    "warn_lead_s": 187.0,
+    "act_lead_s": 164.0,
+    "wall_s": 105.3
+   },
+   "1": {
+    "peak_rho": 5.44,
+    "cross_4_5_s": 292.0,
+    "warn_s": 99.0,
+    "act_s": 133.0,
+    "actions": {
+     "open second exit door": {
+      "predicted_peak": 0.34285714285714286,
+      "simulated_peak": 1.5657142857142856,
+      "simulated_held": 0.0
+     },
+     "meter both gates to 150/min": {
+      "predicted_peak": 0.3606271776887807,
+      "simulated_peak": 0.37714285714285717,
+      "simulated_held": 736.0
+     }
+    },
+    "warn_lead_s": 193.0,
+    "act_lead_s": 159.0,
+    "wall_s": 103.9
+   }
+  }
+ },
+ "summary": {
+  "avm": {
+   "runs": 20,
+   "reached_4_5": 19,
+   "peak_rho": {
+    "min": 4.388888888888889,
+    "median": 4.943634259259259,
+    "max": 5.766666666666667,
+    "n": 20
+   },
+   "warn_before_4_5": 19,
+   "act_before_4_5": 19,
+   "warn_lead_s": {
+    "min": 160.0,
+    "median": 201.0,
+    "max": 260.0,
+    "n": 19
+   },
+   "act_lead_s": {
+    "min": 134.0,
+    "median": 181.0,
+    "max": 246.0,
+    "n": 19
+   },
+   "warned_without_reaching": 1,
+   "open second exit door": {
+    "zone_peak": {
+     "min": 0.6916666666666667,
+     "median": 3.2503174603174605,
+     "max": 4.022857142857143,
+     "n": 20
+    },
+    "held": {
+     "min": 0.0,
+     "median": 59.5,
+     "max": 375.0,
+     "n": 20
+    },
+    "peak_error": {
+     "min": 0.375,
+     "median": 2.7131429207627886,
+     "max": 3.5378285714710165,
+     "n": 20
+    }
+   },
+   "meter both gates to 150/min": {
+    "zone_peak": {
+     "min": 0.3333333333333333,
+     "median": 0.5533333333333333,
+     "max": 0.8518518518518519,
+     "n": 20
+    },
+    "held": {
+     "min": 692.0,
+     "median": 907.0,
+     "max": 1642.0,
+     "n": 20
+    },
+    "peak_error": {
+     "min": -0.07522633744652107,
+     "median": 0.016591173060371556,
+     "max": 0.14371304077186475,
+     "n": 20
+    }
+   }
+  },
+  "csm, same evenings": {
+   "runs": 20,
+   "reached_4_5": 14,
+   "peak_rho": {
+    "min": 3.9814814814814814,
+    "median": 4.821875,
+    "max": 5.95,
+    "n": 20
+   },
+   "warn_before_4_5": 14,
+   "act_before_4_5": 14,
+   "warn_lead_s": {
+    "min": 247.0,
+    "median": 275.0,
+    "max": 422.0,
+    "n": 14
+   },
+   "act_lead_s": {
+    "min": 212.0,
+    "median": 254.0,
+    "max": 392.0,
+    "n": 14
+   },
+   "warned_without_reaching": 6,
+   "open second exit door": {
+    "zone_peak": {
+     "min": 0.6333333333333333,
+     "median": 2.506597222222222,
+     "max": 2.96,
+     "n": 20
+    },
+    "held": {
+     "min": 0.0,
+     "median": 9.5,
+     "max": 268.0,
+     "n": 20
+    },
+    "peak_error": {
+     "min": 0.3333333333333333,
+     "median": 1.9508447979049501,
+     "max": 2.432010342607602,
+     "n": 20
+    }
+   },
+   "meter both gates to 150/min": {
+    "zone_peak": {
+     "min": 0.2916666666666667,
+     "median": 0.5055555555555555,
+     "max": 0.6851851851851852,
+     "n": 20
+    },
+    "held": {
+     "min": 678.0,
+     "median": 902.0,
+     "max": 1626.0,
+     "n": 20
+    },
+    "peak_error": {
+     "min": -0.08482552800717935,
+     "median": 0.044519099110822885,
+     "max": 0.1777777777777778,
+     "n": 20
+    }
+   }
+  }
+ }
+}

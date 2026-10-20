@@ -118,13 +118,16 @@ def render(path: Path, everything: bool = False, trace=None) -> str:
                         for c in calls.get(episode_of.get(pid, ""), []))
         alts = "".join(f"<tr><td>{esc(a.get('kind', '').replace('_', ' '))} {esc(str(a.get('target', '')))}</td><td>{a.get('peak')}</td>"
                        f"<td>{'' if a.get('forecast_error') is None else '+' + str(a['forecast_error'])}</td>"
-                       f"<td>{a.get('held_at_entrance') or ''}</td></tr>"
+                       f"<td>{a.get('held_outside_worst', a.get('held_at_entrance')) or ''}</td>"
+                       f"<td>{'' if not a.get('held_outside_worst') else (str(a['waiting_area_density_worst']) if a.get('waiting_area_density_worst') is not None else 'not declared')}</td></tr>"
                        for a in sorted(p.get("alternatives") or [], key=lambda a: a.get("peak", 0)))
+        rule = p.get("choice") or {}
         return f"""<section class="prop">
   <h3>{esc(pid)} · {esc(p.get('zone', ''))} · {esc(p.get('tier', ''))} · {_clock(p['ts'])} UTC</h3>
   <p class="radio">“{esc(p.get('radio', ''))}”</p>
   <p>Planner: {esc(p.get('planner', ''))}. Rationale: {esc(p.get('rationale', ''))}</p>
-  <table><thead><tr><th>Action compared</th><th>Predicted peak, /m²</th><th>Tested error</th><th>Held outside, at least</th></tr></thead><tbody>{alts}</tbody></table>
+  <table><thead><tr><th>Action compared</th><th>Predicted peak, /m²</th><th>Tested error</th><th>Held outside</th><th>Waiting area, /m²</th></tr></thead><tbody>{alts}</tbody></table>
+  {f"<p><b>Venue-wide rule:</b> {esc(rule['reason'])}.</p>" if rule.get("reason") else ""}
   <p><b>Decision:</b> {state}.{f" <b>Verification:</b> {esc(v['outcome'])}, measured {v['observed_rho']}/m² against {v['predicted_rho']}/m² predicted after {v['elapsed_s']} s." if v else ""}</p>
   {f'<details><summary>Tool calls behind this proposal ({len(calls.get(episode_of.get(pid, ""), []))})</summary><ol class="calls">{steps}</ol></details>' if steps else ""}
 </section>"""

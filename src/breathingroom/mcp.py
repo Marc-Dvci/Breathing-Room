@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from . import choice
 from .physics import Action
 
 PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -100,10 +101,13 @@ def call(rt, catalogue, name: str, args: dict) -> Any:
                      width_m=float(spec.get("width_m", 0)), share=float(spec.get("share", 1.0)))
         fc = tools["_forecast"](zone=zone, action=act)
         err = spec.get("forecast_error")
+        priced = choice.Option(fc.id, kind, fc.peak_rho, err or 0.0, spec.get("forecast_error_max", err) or 0.0,
+                               fc.held_back_peak, spec.get("queue_factor", 1.0), spec.get("holding_area_m2"))
         return {"action": fc.action, "density_now": round(fc.rho_now, 2), "peak_density_10min": round(fc.peak_rho, 2),
                 "measured_forecast_error": err, "peak_with_error": None if err is None else round(fc.peak_rho + err, 2),
                 "minutes_to_4_5": None if fc.seconds_to_threshold is None else round(fc.seconds_to_threshold / 60, 1),
-                "inflow_per_min": round(fc.inflow_pps * 60, 1), "outflow_per_min": round(fc.outflow_pps * 60, 1)}
+                "inflow_per_min": round(fc.inflow_pps * 60, 1), "outflow_per_min": round(fc.outflow_pps * 60, 1),
+                "people_held_at_entrance_10min": round(fc.held_back_peak), **priced.summary()}
     raise ValueError(f"unknown tool {name}")
 
 

@@ -2,7 +2,7 @@
 
 Marc Donovici · OpenCV AI Competition 2026 · October 2026
 
-Breathing Room measures three things per zone from ordinary CCTV: density in people per m², a
+Breathing Room measures three things per zone from camera video: density in people per m², a
 pushing index from crowd motion, and minutes until the zone reaches 4.5 people per m² at the
 current inflow. An agent turns a warning into one proposed action with its predicted effect and
 a camera crop of where the pushing is, a steward approves or rejects it, and the system checks
@@ -110,13 +110,33 @@ Dashed red paths are the failure branches.*
   the second counter is reported as such. `locate_pushing` decides where the action goes: the
   radio message names the side and the distance before the gate, and the steward sees the crop.
   The forecast drives which action is proposed.
-- **Guards in code.** The action must be in the venue's catalogue; the proposal must cite a
-  forecast from its own episode; every number in the radio message must match a number returned
-  by a tool (`Episode.ungrounded_numbers`); a less disruptive action within 0.25/m² cannot be
-  skipped; and a zone whose own state says it reaches 4.5/m² within 10 minutes cannot be closed
-  without action. A refusal goes back to the model as a tool result, and the model corrects itself.
-- **Measured forecast error.** Each catalogue action carries the error its forecast made in test
-  B. `forecast_action` returns the peak with that error added, and proposals rank actions on it.
+- **Guards in code, not in the prompt.** `Episode._propose` refuses a proposal unless, in this
+  episode: the zone's state was read and its feed is live; its camera was checked and was trusted
+  at the latest check; its count was cross-checked; and, when the zone is flagged for pushing,
+  `locate_pushing` ran. Every tool call is held to the episode's zone and camera; the cited
+  forecast must be of this episode, for this zone, of an action in the catalogue. Before judging
+  the proposal, code forecasts every catalogue action the model did not (marked "by the guard" in
+  the trace and on the console), so a gentler or safer action cannot be missed because it was
+  never compared; the proposed action must then be one the venue-wide rule accepts (below). The
+  radio message has at most 30 words, names the zone, says pushing is detected when the zone is
+  flagged for it, and each number must match a tool result of the same kind, read from the words
+  after it: a density only a density field, "minutes to/left/until" only the zone's own
+  `minutes_to_4_5`, a rate a rate, metres a distance, people a count. Reusing a true number as
+  another quantity (a count as a density, a density as minutes) is refused; a number with no unit
+  only has to match some tool result. A zone whose own state says it reaches 4.5/m² within 10
+  minutes cannot be closed without action. A refusal goes back to the model as a tool result, and
+  the model corrects itself.
+- **The venue-wide rule (`choice.py`).** Each catalogue action carries the mean and the largest
+  error its forecast made in test B, and, for actions that hold people back, the largest factor
+  by which the queue forecast fell short there, and the waiting area the venue declared before
+  that entrance. An action is safe when the zone's peak plus the largest error, and the queue
+  priced the same way over its waiting area, both stay under 3.5/m² (WARN). Among safe actions the
+  rule takes the one that holds the fewest people outside, then the least disruptive, then the
+  lowest zone peak; if none is safe, the one whose densest place, zone or waiting area, is lowest,
+  the gentlest within 0.25/m². An action that holds people back where no waiting area is declared
+  is never safe. The deterministic planner, the guard and the evaluation (6.4b) use the same code.
+  This answers an outside review of the first version, which ranked actions on the zone's peak
+  alone and so kept the zone clear by holding hundreds of people before the gates.
 - **Failure handling.** A failing tool is reported to the model, never raised. An unreachable
   model hands the episode to a deterministic planner that calls the same tools. A proposal nobody
   decides on expires after 4 minutes. An approved action that does not bend the measured curve
@@ -184,10 +204,27 @@ trajectories: Pearson 0.996, mean absolute error 0.13 people/m².
 | DM-Count | 10% | 12% | 3% |
 | DM-Count | 20% | 30% | 8% |
 
-On the DM-Count pathway, a threshold specific enough for unattended alerts misses most pushing.
-The console does not alert unattended: a pushing alert opens an investigation that ends with a
-camera crop of the spot in front of a steward. Pushing detection on ordinary CCTV across venues
-is untested; the only rated pushing data used here is one experiment series.
+Person-seconds understate what a steward needs, which is to learn that a stretch of pushing is
+happening. Counting a person's run of 2 or more seconds rated pushing as one episode (78 on the
+held-out runs), and an episode as detected when any of its seconds is flagged:
+
+| Pathway | Threshold | Pushing person-seconds | Walking person-seconds | Pushing episodes detected |
+|---|---|---|---|---|
+| heads | set for 10% walking | 36% | 5% | 63% |
+| heads | set for 20% walking | 63% | 13% | 81% |
+| heads | **the console's, 0.11 /s²** | **90%** | 29% | **96% (75 of 78)** |
+| DM-Count | set for 10% walking | 12% | 3% | 44% |
+| DM-Count | set for 20% walking | 30% | 8% | 65% |
+| DM-Count | its Youden point, 0.035 /s² | 72% | 25% | 85% |
+
+(Index averaged over each person's last 3 s; the console's threshold flags 31% of walking
+person-seconds without that averaging.) The console runs the sensitive point on purpose: an alert
+opens an investigation that ends with a camera crop in front of a steward, and never acts by
+itself, so a false alert costs a look and a missed one costs the warning. At thresholds strict
+enough for unattended alerts, most pushing is missed, on the DM-Count pathway by a wide margin.
+What these numbers do not show: pushing detection on ordinary oblique CCTV. Every rated pushing
+second here comes from overhead video of one experiment series; DM-Count on oblique street
+footage is tested for counting only (6.6).
 
 ### 6.2 Outflow from video
 
@@ -239,7 +276,8 @@ twin, each exit and each gate serves its own side of the street, and the arrival
 Ranking actions on predicted peak alone would choose the second door (least disruptive) and
 miss by 1.85 people/m² on average. Ranking on predicted peak plus each action's measured error,
 estimated on the other four evenings (leave one out), chooses metering both gates in 5 of 5
-evenings, with a mean regret of 0.01 people/m².
+evenings, with a mean regret of 0.01 people/m² on the zone's peak. That ranking looks at the zone
+only; 6.4b shows what it does to the people held outside, and the rule the console uses now.
 
 **Other venues.** The same forecaster and the same choice rule ran, with nothing retuned, on seven
 more layouts (`eval/test_b_venues.py`): streets 18 to 45 m long and 5 to 10 m wide, main exits
@@ -250,9 +288,10 @@ only, as the console does.
 - 18 of the 21 runs reached 4.0/m². All 18 were warned 3.2 to 5.2 minutes ahead (median 3.5);
   median error of the predicted time 1 to 5 minutes ahead: 35 s. The three runs of the short street
   with a 3 m exit peaked at 3.94 to 3.98/m², just under the line, after a warning.
-- Ranking on predicted peak plus the first venue's error chose metering both gates in 21 of 21
-  runs: regret at most 0.05 people/m² (mean 0.01), and the zone stayed under 0.84/m². Ranking on
-  predicted peak alone chose the second door every time, with a mean regret of 1.98.
+- Ranking on predicted peak plus the first venue's error found the best action for the zone in
+  21 of 21 runs: regret at most 0.05 people/m² (mean 0.01). Ranking on predicted peak alone chose
+  the second door every time, with a mean regret of 1.98. Both rankings look at the zone only
+  (6.4b).
 
 ![Seven more venues](figures/fig_venues.png)
 
@@ -276,24 +315,75 @@ venue, the seven layouts above, and two with a second door wider than usual (2.8
 - **Alerts.** 22 evenings reached 4.5/m². In all 22, WARN came 247 to 457 s ahead (median 275 s)
   and ACT 212 to 432 s ahead (median 255 s). The other 8 peaked at 3.94 to 4.48/m², after both
   WARN and ACT: the forecast said 5 minutes to 4.5 and the crowd stopped just short of it.
-- **The choice was narrow.** From the moment the investigation opens, the console's rule chose
-  metering both gates in 30 of 30 evenings, with regret under 0.25/m² in all 30 (mean 0.02). The
-  fixed rule "always meter both gates" has the same mean regret. These scenarios test the
-  forecast well and the choice between different actions hardly at all.
 - **Metering moves the crowd upstream.** The twin counts the people a gate holds back. Metering
   both gates kept a median of 912 people waiting before the gates (up to 1,626), holding both
   1,559 (up to 2,876), opening the second door 10 (up to 268). The twin does not model the
-  approach, so the density of that queue is not measured.
+  approach, so the queue's density is its count over an assumed waiting area: 20 m deep across
+  each gate's half of the street (60 m² per gate on the reference venue, as the console assumes).
 - **The forecast of that queue is low.** In all 120 action runs the forecast queue was at or
   below the simulated one, by a median factor of 1.6 (holding) to 2.8 (metering both gates): the
-  forecast carries the inflow seen at the warning, and the surge kept rising. Every proposal now
-  shows it, per action, as "held outside, at least".
-- **A rule that weighs the queue.** Scored on the same runs and not used by the console: the
-  least disruptive action whose peak plus measured error stays under 3.5/m², fewest people held
-  first. It opens the second door in 30 of 30 evenings; the zone peaks at 3.01/m² at most, under
-  WARN in all 30, and a median of 10 people wait outside instead of 912. Whether that trade is
-  right depends on where the queue would stand, which belongs to the venue's safety plan, so the
-  console shows both numbers and the steward decides.
+  forecast carries the inflow seen at the warning, and the surge kept rising. The console prices
+  each queue with the largest factor seen on the reference venue (2.87 metering both, 2.29
+  metering one, 1.58 holding).
+- **Zone only against venue-wide.** The first console ranked actions on the zone's peak alone
+  (least disruptive within 0.25/m² of the lowest peak plus mean error). It metered both gates in
+  30 of 30 evenings: the zone stayed under 0.69/m², but a median of 912 people waited outside, up
+  to 9.7/m² in the waiting area, far denser than the zone it protected. The venue-wide rule
+  (section 5), now in the console, opens the second door in 30 of 30: the zone peaks at 3.01/m²
+  at most, under WARN in all 30; a median of 10 people wait outside (up to 268, 2.2/m², in three
+  evenings of the short street whose gates back up on their own: 499 to 523 wait there with no
+  action). In all 30 its choice had the lowest density anywhere, zone or waiting area, of the
+  four actions in hindsight; the zone-only rule was 5.2/m² worse on that measure on average.
+- **What this does not settle.** The door works here because every layout has one. Where no
+  action is safe, the rule takes the least dense place, which can still be dense; where the venue
+  declares a large waiting area, metering becomes safe and may be chosen. The waiting areas, the
+  queue factors and the safety bar of 3.5/m² are inputs a venue's safety plan must own, and
+  approach routes, alternative entrances and the consequences of closing one are not modelled.
+
+### 6.4c Sudden surges
+
+The forecast carries the inflow trend of the last 45 s forward for two minutes, so its weak point
+is a surge with no trend before it: a train unloading, a hall letting out. `eval/test_b_surge.py`
+runs the ten layouts of 6.4b with the street quiet (1.5 arrivals per second, scaled by each
+layout's demand) until 180 s, then the full rate of the test B evenings (6.5 per second, scaled)
+with no ramp, through the console's `TierPolicy`. Three seeds each.
+
+| Surge | Evenings | Reached 4.5/m² | WARN and ACT after the surge began | ACT before 4.5/m² |
+|---|---|---|---|---|
+| step: the full rate to the end (1,400 to 3,500 extra people) | 30 | 23 | 22 to 34 s (WARN), 24 to 37 s (ACT) | 23 of 23, 156 to 374 s ahead, median 196 s |
+| pulse: the full rate for 120 s (400 to 1,000 people) | 30 | 0 (peak 2.1 to 4.4) | 22 to 38 s (WARN), 24 to 41 s (ACT), all 30 | |
+
+On the same layouts with the arrivals ramping up (6.4b) ACT came a median 254 s ahead, so a surge
+with no warning in its trend costs about a minute of lead time here. None of the 60 quiet
+streets was warned before its surge. What this does not cover: a surge the zone's own camera
+cannot see until it arrives, faster than these, or one that starts already above 4.5/m² at the
+entrance; upstream cameras would see it sooner.
+
+### 6.4d A second pedestrian model
+
+Every test above scores the forecast against JuPedSim's collision-free speed model, on which the
+forecaster's settings were chosen, so the forecast and its ground truth could share that model's
+habits. `eval/test_b_models.py` reruns ten layouts, two seeds each, with JuPedSim's anticipation
+velocity model, in which people anticipate their neighbours and crossing streams keep moving;
+forecaster, policy, layouts and arrivals unchanged.
+
+| | Collision-free speed (same evenings) | Anticipation velocity |
+|---|---|---|
+| Evenings reaching 4.5/m² | 14 of 20 | 19 of 20 |
+| WARN and ACT before 4.5/m² | 14 of 14 | 19 of 19 |
+| ACT lead, s (median) | 212 to 392 (254) | 134 to 246 (181) |
+| Door: zone peak, people/m² (max) | 2.96 | 4.02 |
+| Door: forecast error, people/m² (max) | 2.43 | 3.54 |
+| Metering both: people held (median) | 902 | 907 |
+
+The second model packs the street faster, so warnings come about a minute later, still before
+4.5/m² in every evening. The forecast of the door was more optimistic than the error priced from
+the first model (1.96 at most): in 4 of 20 evenings (the long street with a 1.6 m exit, and the
+plaza) the zone reached 3.6 to 4.0/m² with the door open, above the 3.5/m² the rule aims for and
+below 4.5. In all 20, the door still left the lowest density anywhere: metering would have kept
+the zone under 0.9/m² by putting 4.3 to 9.5/m² into the assumed waiting areas. The console's 90 s
+verification compares the measured curve with the forecast one and escalates when it does not
+bend; these runs do not exercise it.
 
 Scenarios and scoring come from the same simulator family (JuPedSim). These results show the
 forecast and the choice are consistent within that model, not that they work at real events.
@@ -305,14 +395,21 @@ episode starts with the reasons the tier policy gives for the zone's measured st
 
 | Scenario | Episodes | Expected decision | Outcome |
 |---|---|---|---|
-| Zone C filling (WARN, about 9 minutes to 4.5/m²) | 6 | proposal | 6/6, all "meter both gates to 150/min", each citing its own forecast |
-| Entrance E1, pushing, density not rising | 6 | proposal | 6/6 an announcement; in 6/6 the agent called `locate_pushing` (a 4.6 m² region reaching 5.6/m², 1.4 m before the gate) and the radio message says where the pushing is |
+| Zone C filling (WARN, about 9 minutes to 4.5/m²) | 6 | proposal | 6/6, all "open the second exit door", each citing its own forecast and accepted by the venue-wide rule |
+| Entrance E1, pushing, density not rising | 6 | proposal | 6/6: 4 announcements, 2 stewards sent; in 6/6 the agent called `locate_pushing` (a 4.6 m² region reaching 5.6/m², 1.4 m before the gate) and the radio message says where the pushing is |
 | Entrance E1, camera knocked | 6 | recalibration request | 6/6, median 3 tool calls and 7 s |
-| Zone C, model endpoint unreachable | 2 | deterministic planner | 2/2 |
+| Zone C, model endpoint unreachable | 2 | deterministic planner | 2/2, the same door under the same rule |
 
-20 of 20 overall; a crowd episode takes a median 7 tool calls and 14 to 18 s. Two calls were refused
-in the final run (a `meter_entry` with no target where three gates exist); the model named the
-target on its next call. In the run before it, one of the six filling-zone episodes closed with
+20 of 20 overall, run after the guards moved into code (20 October); a crowd episode takes a
+median 10 tool calls and 11 to 22 s; radio messages have 16 to 23 words. Four calls were refused:
+twice the model proposed an announcement at E1 before calling `cross_check_count` and was told
+so, and twice it asked to forecast an announcement in Zone C, where the catalogue has none. The
+model forecast 1 to 4 actions per episode; code forecast the rest of the catalogue before
+judging each proposal (1 to 4 per episode), so every proposal was compared with every action.
+One message gave the hotspot's own density ("5.6 /m² at centre 1.4 m before gate"), which the
+kind-aware check accepts because `locate_pushing` returned it as a density. In the run before
+the guards moved into code (16 October), the same scenarios gave 20 of 20 with the filling zone
+metered at both gates, the choice of the earlier zone-only rule. In the run before it, one of the six filling-zone episodes closed with
 `no_action`, reading an action's forecast (0.55/m²) as the zone's future while `get_zone_state`
 said 9.1 minutes to 4.5/m². Code now refuses `no_action` while the zone's own state says it
 reaches 4.5/m² within 10 minutes, unless a no-action forecast shows it stays below. Earlier runs showed what the guards are for: the model wrote "stable for 10 minutes"
@@ -449,27 +546,46 @@ whole inflow.
 
 ## 8. Limitations
 
-- E1's head detector relies on the caps of the Jülich participants. On ordinary CCTV, density
-  comes from DM-Count, measured at 10.9% error on oblique street scenes; the pushing index from
-  DM-Count density reached AUROC 0.767 on the overhead view, against 0.798 from heads.
-  Set to flag 10% of walking person-seconds, the DM-Count pathway flags 12% of pushing on held-out
-  runs (6.1b): not specific enough for unattended alerts, which the console does not make.
+- **Pushing detection is shown on overhead video of one experiment series, not on arbitrary
+  CCTV.** E1's head detector relies on the caps of the Jülich participants. On ordinary CCTV,
+  density would come from DM-Count, measured at 10.9% error on oblique street scenes, but no
+  rated pushing data from an oblique camera was available, so pushing on such views is untested.
+  On the overhead view the pushing index from DM-Count density reached AUROC 0.767 (heads 0.798);
+  at its Youden point it flags 72% of pushing and 25% of walking person-seconds, and 85% of
+  pushing episodes; set to flag 10% of walking, it flags 12% of pushing (6.1b). The console runs
+  the sensitive point and a person looks at every alert; a camera that misses pushing gives no
+  warning of it, and no approval step can make up for that.
 - The pushing threshold was set and tested on six runs of one experiment series, with one camera.
-- In 30 simulated evenings the action choice always metered both gates, as a fixed rule would,
-  and metering held hundreds of people before the gates (6.4b). The choice ranks actions by the
-  zone's peak; the queue it creates is shown to the steward, not weighed by the rule.
+- The venue-wide rule weighs the zone and the waiting area before each restricted entrance, but
+  those areas are declared by the venue, not measured: no camera watches the queue, and approach
+  routes and alternative entrances are not modelled (6.4b). Its errors and queue factors were
+  measured on one simulated venue and carried to the others.
 - The minutes-to-danger forecast is tested on eight simulated street layouts. Its pedestrian model cannot pack
   people above about 4.5/m², so forecast peaks above that are not scored, and the twin's
   behaviour at exits shaped what the forecast gets wrong.
 - The forecast assumes the inflow trend lasts two minutes. A sudden surge (a train arriving) is
-  seen only once it reaches the zone.
+  seen only once it reaches the zone: in simulation ACT came 24 to 37 s after such a surge began
+  and 156 to 374 s before 4.5/m² (6.4c), about a minute less lead than for a ramping crowd.
 - The live console replays one recording and simulates the other zone. It has not run on a live
   venue camera.
 
 ## 9. Responsible use
 
-- **Aggregate only.** The pipeline keeps people-mass and motion on a floor grid. It stores no
-  faces, identities or video, and it does not track a person across cameras.
+- **What is kept, and what is shown.** The measurements and the record hold people-mass and
+  motion on a floor grid. No faces, identities, video or image are written to disk or to the
+  record, and no person is tracked across cameras. Images are shown: the console serves the
+  latest camera frame with the pushing field drawn on it, and each pushing proposal a crop of the
+  spot. Both are images of people. They are held in memory only (the frame until the next one,
+  the 24 newest crops for 15 minutes at most) and served with `no-store`. On the public
+  demonstration anyone can view them; with `BR_MODE=production` the frame, the crops, the zone
+  state, the record and the report need a steward signed in with their PIN (a signed, HttpOnly,
+  SameSite=Strict cookie that lasts a shift), and `/mcp` a bearer token.
+- **Operational resilience is prototype-level.** One t4g.small shows the pipeline fits a small
+  Arm instance. A zone whose source stops producing data is marked lost on the console, is not
+  investigated, and turns `/health` into a 503 for an outside monitor; there is no second
+  instance, no failover, no sustained test with many cameras and concurrent episodes, and no
+  retention policy beyond the log group's 30 days. A venue pilot would need all of them, and a
+  data-protection assessment.
 - **A person decides.** The tier is computed from measurements; the model proposes; a steward
   approves. A camera that cannot be trusted stops counting until a person recalibrates it.
 - **Accountability.** Every proposal, decision and outcome is in a tamper-evident trace, and the

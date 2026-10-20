@@ -54,9 +54,9 @@
   <text class="t" x="742" y="186">mass balance per action</text>
   <rect class="box" x="530" y="212" width="383" height="82" rx="8"/>
   <text class="h" x="544" y="232">Guards (code, not the model)</text>
-  <text class="t" x="544" y="250">the action must be in the venue catalogue</text>
-  <text class="t" x="544" y="267">the proposal must cite its own forecast</text>
-  <text class="t" x="544" y="284">radio numbers must come from tool results</text>
+  <text class="t" x="544" y="250">camera trusted and count cross-checked first</text>
+  <text class="t" x="544" y="267">every action forecast; zone and queue weighed</text>
+  <text class="t" x="544" y="284">radio numbers match tool results by kind</text>
 
   <text class="k" x="970" y="40">ACT, WITH A PERSON</text>
   <rect class="hum" x="970" y="52" width="200" height="110" rx="10"/>

@@ -101,3 +101,8 @@ button:disabled { opacity: 0.6; cursor: default; }
 .log li b { color: var(--ink); font-weight: 600; }
 .small { font-size: 13px; color: var(--teal); }
 @media (max-width: 640px) { main { padding: 12px 16px; } .bar { flex-wrap: wrap; gap: 8px; padding: 10px 16px; } .venue { flex-basis: 100%; order: 3; } .tile .big { font-size: 36px; } }
+
+.signin { max-width: 380px; margin: 48px auto; display: grid; gap: 10px; }
+.signin[hidden] { display: none; }
+.signin h2 { margin: 0; font-size: 18px; }
+.signin input { font: inherit; padding: 8px 10px; border: 1px solid var(--muted); border-radius: 8px; }

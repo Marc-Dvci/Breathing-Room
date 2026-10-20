@@ -18,7 +18,16 @@
   </div>
 </header>
 
-<main>
+<form id="signin" class="signin card" hidden>
+  <h2>Steward sign-in</h2>
+  <p class="small-muted">This console shows camera images and the record of the evening. Sign in with your steward PIN.</p>
+  <label for="pin">Steward PIN</label>
+  <input id="pin" name="pin" type="password" inputmode="numeric" autocomplete="current-password" minlength="6" required>
+  <button type="submit" class="approve">Sign in</button>
+  <p id="signinerr" class="err" role="alert"></p>
+</form>
+
+<main id="console">
   <section class="tiles" id="tiles" aria-label="Zones"></section>
 
   <section class="grid">

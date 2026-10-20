@@ -7,16 +7,24 @@ Environment:
     BR_CAMERA_RUN    rated entrance run replayed by camera E1 (default 150_q_56_h0)
     BR_USE_MODEL     1 = agent on the Bedrock API endpoint, 0 = deterministic planner
     BR_TRACE         trace file (default ./var/trace.jsonl)
-    BR_MODE          "production" (default) or "demo". In production a decision needs a steward's PIN
-                     and the demonstration controls are off; "demo" is the public demonstration, where
-                     anyone may decide while no steward accounts exist and the trace says so
+    BR_MODE          "production" (default) or "demo". In production every page and API except the
+                     sign-in page needs a steward signed in, a decision needs the steward's PIN again,
+                     the MCP endpoint needs BR_MCP_TOKEN, and the demonstration controls are off.
+                     "demo" is the public demonstration: anyone may look, and decide while no steward
+                     accounts exist, and the trace says so
     BR_STEWARDS_FILE steward accounts, JSON name -> PIN hash (python -m breathingroom.stewards)
     BR_STEWARD_PIN   a single account named "steward"
+    BR_SESSION_SECRET key that signs sign-in cookies (default: random at start, so a restart signs everyone out)
+    BR_SESSION_HOURS how long a sign-in lasts (default 12, one shift)
+    BR_MCP_TOKEN     bearer token for /mcp in production; without it the endpoint is closed
     BR_TRACE_KEY     Ed25519 private key (PEM) that signs every trace entry
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import os
 import threading
 import time
@@ -39,6 +47,12 @@ RUN = os.environ.get("BR_CAMERA_RUN", "150_q_56_h0")
 TRACE = Path(os.environ.get("BR_TRACE", ROOT / "var" / "trace.jsonl"))
 MODE = os.environ.get("BR_MODE", "production")
 STEWARDS = Stewards.from_env()
+SESSION_SECRET = os.environ.get("BR_SESSION_SECRET", "").encode() or os.urandom(32)
+SESSION_S = float(os.environ.get("BR_SESSION_HOURS", "12")) * 3600
+SESSION_COOKIE = "br_session"
+MCP_TOKEN = os.environ.get("BR_MCP_TOKEN", "")
+# reachable without signing in, in production: the page that asks for the PIN, and the health check
+OPEN_PATHS = {"/", "/health", "/api/mode", "/api/session"}
 
 state: dict = {}
 MCP_CALLS_PER_MIN = 120  # the endpoint is public and the instance is small
@@ -76,9 +90,41 @@ app = FastAPI(title="Breathing Room", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=WEB), name="static")
 
 
+def session_cookie(name: str, now: float | None = None) -> str:
+    body = f"{name}|{int((time.time() if now is None else now) + SESSION_S)}".encode()
+    sig = hmac.new(SESSION_SECRET, body, hashlib.sha256).hexdigest()
+    return base64.urlsafe_b64encode(body).decode() + "." + sig
+
+
+def session_name(value: str | None, now: float | None = None) -> str | None:
+    """The steward a sign-in cookie belongs to, if it is genuine and current."""
+    try:
+        b64, sig = (value or "").split(".")
+        body = base64.urlsafe_b64decode(b64.encode())
+        name, exp = body.decode().rsplit("|", 1)
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not hmac.compare_digest(hmac.new(SESSION_SECRET, body, hashlib.sha256).hexdigest(), sig):
+        return None
+    return name if int(exp) > (time.time() if now is None else now) and name in STEWARDS.accounts else None
+
+
+def may_read(path: str, cookie: str | None, authorization: str = "") -> bool:
+    """Outside the public demonstration, camera frames, evidence crops, zone state, the record and
+    the report are for signed-in stewards, and the MCP endpoint for holders of its token."""
+    if MODE == "demo" or path in OPEN_PATHS or path.startswith("/static/"):
+        return True
+    if path == "/mcp":
+        return bool(MCP_TOKEN) and hmac.compare_digest(authorization.encode(), f"Bearer {MCP_TOKEN}".encode())
+    return session_name(cookie) is not None
+
+
 @app.middleware("http")
 async def headers(request: Request, call_next):
-    resp = await call_next(request)
+    if not may_read(request.url.path, request.cookies.get(SESSION_COOKIE), request.headers.get("authorization", "")):
+        resp = JSONResponse({"detail": "sign in as a steward"}, 401)
+    else:
+        resp = await call_next(request)
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["Referrer-Policy"] = "same-origin"
     resp.headers["X-Frame-Options"] = "DENY"
@@ -90,6 +136,27 @@ def index():
     return FileResponse(WEB / "index.html")
 
 
+@app.post("/api/session")
+async def sign_in(request: Request):
+    """A steward signs in with their PIN; the cookie lasts one shift."""
+    body = await request.json() if request.headers.get("content-length") not in (None, "0") else {}
+    if not STEWARDS:
+        raise HTTPException(403, "no steward accounts are configured")
+    name, _ = _steward(body, request)
+    resp = JSONResponse({"ok": True, "steward": name})
+    resp.set_cookie(SESSION_COOKIE, session_cookie(name), max_age=int(SESSION_S), httponly=True, secure=True,
+                    samesite="strict")
+    state["rt"].trace.write("session", steward=name, event="signed in")
+    return resp
+
+
+@app.delete("/api/session")
+def sign_out():
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(SESSION_COOKIE)
+    return resp
+
+
 @app.get("/report")
 def evening_report(all: int = 0):
     return HTMLResponse(report.render(state["rt"].trace.path, everything=bool(all), trace=state["rt"].trace), headers={"Cache-Control": "no-store"})
@@ -97,8 +164,9 @@ def evening_report(all: int = 0):
 
 @app.get("/health")
 def health():
-    rt: Runtime = state["rt"]
-    return {"ok": True, "running": rt.running, "zones": list(rt.zones())}
+    """503 when a zone has produced no data for a while: for a monitor outside the instance."""
+    h = state["rt"].health()
+    return JSONResponse(h, 200 if h["ok"] else 503, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/state")
@@ -119,10 +187,10 @@ def camera_jpg():
 @app.get("/api/evidence/{eid}.jpg")
 def evidence_jpg(eid: str):
     rt: Runtime = state["rt"]
-    img = rt.camera.evidence.get(eid) if rt.camera is not None else None
+    img = rt.camera.evidence_image(eid) if rt.camera is not None else None
     if img is None:
         raise HTTPException(404, "evidence image not kept")
-    return Response(img, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+    return Response(img, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
 
 
 def _client(request: Request) -> str:
@@ -235,5 +303,6 @@ def trace_key():
 
 
 @app.get("/api/mode")
-def mode():
-    return {"mode": MODE, "pin_required": bool(STEWARDS) or MODE != "demo"}
+def mode(request: Request):
+    return {"mode": MODE, "pin_required": bool(STEWARDS) or MODE != "demo", "sign_in_required": MODE != "demo",
+            "steward": session_name(request.cookies.get(SESSION_COOKIE))}

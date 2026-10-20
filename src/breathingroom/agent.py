@@ -8,9 +8,17 @@ Division of labour:
   the radio message;
 - a person approves or rejects. Nothing reaches a gate or a PA system without that.
 
-A proposal must cite a forecast the agent computed in this episode, and its action must be in
-the venue's catalogue. Anything else is refused by `Episode.propose` and the refusal goes back
-to the model as a tool result.
+The safeguards are code, not instructions. `Episode._propose` refuses a proposal, and the
+refusal goes back to the model as a tool result, unless:
+- the zone's state was read, its camera checked and trusted at the latest check, and its count
+  cross-checked in this episode; where the zone is flagged for pushing, the pushing located;
+- it cites a forecast of this episode, for this episode's zone, of an action in the venue's
+  catalogue;
+- the action is one the venue-wide rule (choice.py) accepts, judged against every action in
+  the catalogue: code forecasts any the model did not;
+- the radio message has at most 30 words, names the zone, says pushing is detected when the
+  zone is flagged for it, and every number in it matches a tool result of the same kind
+  (a density with a density, minutes to 4.5 with the zone's own minutes_to_4_5, and so on).
 
 Model: openai.gpt-oss-120b through the Bedrock API endpoint (bedrock-mantle, OpenAI-compatible).
 When the model is unavailable, a deterministic planner calls the same tools in a fixed order.
@@ -26,16 +34,36 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
+from . import choice
+from .choice import DISRUPTION  # noqa: F401  (re-exported: how disruptive each kind of action is)
 from .physics import Action, Forecast
-from .policy import Tier
+from .policy import Thresholds, Tier
 from .trace import Trace
 
 MODEL_ID = os.environ.get("BR_MODEL_ID", "openai.gpt-oss-120b")
 MANTLE_URL = os.environ.get("BR_MANTLE_URL", "https://bedrock-mantle.us-east-1.api.aws/v1")
-MAX_STEPS = 10
-# how disruptive each kind of action is for the crowd; a proposal may not skip a less disruptive
-# action whose predicted peak (with its measured error) is within 0.25/m2
-DISRUPTION = {"send_steward": 0, "announce": 0, "open_exit": 0, "meter_entry": 1, "hold_entry": 2}
+MAX_STEPS = 12
+RADIO_MAX_WORDS = 30
+FORECAST_HORIZON_MIN = 10
+# What a number in the radio message is, from the words after it, and the tool-result fields a
+# number of that kind may come from. A density can only be a density some tool returned, and so on.
+_UNIT_RE = [
+    ("density", re.compile(r"\s*(?:people|persons)?\s*(?:/|per)\s*(?:m2|m²|m\^2|sq\.?\s*m|square\s+met(?:re|er)s?)", re.I)),
+    ("rate", re.compile(r"\s*(?:people|persons)?\s*(?:/|per|a)\s*min(?:ute)?s?\b", re.I)),
+    ("minutes", re.compile(r"\s*min(?:ute)?s?\b", re.I)),
+    ("metres", re.compile(r"\s*(?:m|metres?|meters?)\b", re.I)),
+    ("people", re.compile(r"\s*(?:people|persons)\b", re.I)),
+]
+_FIELDS = {
+    "density": {"density", "density_now", "peak_density_10min", "peak_with_error", "peak", "threshold",
+                "zone_peak_worst", "waiting_area_density_worst"},
+    "rate": {"rate_per_min", "inflow_per_min", "outflow_per_min", "net_rate_per_min", "exit_capacity_per_min",
+             "trend_per_min"},
+    "minutes": {"minutes_to_4_5", "minutes_to_threshold", "longest_wait_at_entrance_min"},
+    "metres": {"metres_before_gate", "floor_shift_m", "exit_width_m", "width_m"},
+    "people": {"people", "count_primary", "count_second", "people_held_at_entrance_10min", "held_outside_worst"},
+}
+_TIME_LEFT_RE = re.compile(r"\s*min(?:ute)?s?\s+(?:to|left|until|before|from)\b", re.I)
 
 
 @dataclass
@@ -58,6 +86,7 @@ class Proposal:
     replay: bool = False  # the zone is a recording: approving records the decision only
     predicted_at_proposal: dict = field(default_factory=dict)  # set when approval re-forecasts
     evidence_images: list[dict] = field(default_factory=list)  # camera crops from locate_pushing
+    choice: dict = field(default_factory=dict)  # what the venue-wide rule chose, and why
 
     def to_json(self) -> dict:
         return asdict(self)
@@ -77,17 +106,20 @@ SYSTEM_PROMPT = """You assist crowd-safety stewards at a venue. A zone has been 
 alert policy. Investigate it with the tools, then propose ONE action for a person to approve,
 or say that no action is needed.
 
-Rules:
-1. Every number you state must come from a tool result in this conversation. The radio
-   message is checked: a number no tool returned is refused.
-2. Before proposing, confirm the measurement: call check_camera for the zone's camera and
-   cross_check_count for the zone. If the camera is not trusted, call request_recalibration
-   and do not propose a crowd action from that camera.
-3. Compare at least two actions with forecast_action, then propose the one whose
-   peak_with_error stays lowest with the least disruption. peak_with_error adds the error this
-   forecast made for that action when tested against the crowd simulation; an action with a
-   large measured error is less certain to work. Holding an entrance is the last resort: a
-   proposal that skips a less disruptive action within 0.25/m2 is refused.
+Rules (code checks each one and refuses a proposal that breaks it):
+1. Every number you state must come from a tool result in this conversation, as the same kind
+   of quantity: a density from a density, a time from a time.
+2. Before proposing, confirm the measurement: call get_zone_state, check_camera for the zone's
+   camera and cross_check_count for the zone. If the camera is not trusted, call
+   request_recalibration and do not propose a crowd action from that camera.
+3. Compare the actions with forecast_action (code forecasts any you leave out), then propose
+   the one the venue-wide rule accepts. An action protects the zone only if it does not move
+   the danger elsewhere: metering or holding an entrance keeps people waiting before it, and
+   people_held_at_entrance_10min and waiting_area_density_worst say how many and how dense.
+   An action is safe when zone_peak_worst and waiting_area_density_worst both stay below 3.5.
+   Among safe actions, propose the one that holds the fewest people outside, then the least
+   disruptive; if none is safe, the one whose densest place is lowest. Holding an entrance is
+   the last resort.
    The forecast models crowd numbers only. When the zone is flagged for pushing and the
    density is not rising, a steward at the spot or an announcement is the proportionate
    action; their forecast equals the no-action forecast, and you say so.
@@ -96,7 +128,7 @@ Rules:
    the minutes left, and the action. No jargon. The minutes left are minutes_to_4_5 from
    get_zone_state, the zone as it is now; never take them from an action's forecast. When
    minutes_to_4_5 is null the zone is not filling: say so, and never write "0 minutes". When
-   the pushing index is at or above the alert threshold, say that pushing is detected.
+   the zone is flagged for pushing, say that pushing is detected.
 6. When the zone is flagged for pushing, call locate_pushing before choosing an action. If it
    finds a hotspot, the action goes to that spot: a steward or an announcement, and the radio
    message says where (the side and the metres before the gate). If it finds no hotspot, the
@@ -155,12 +187,32 @@ class Episode:
         self.closed_reason = ""
         self.recalibration: dict | None = None
         self.planner = "model"
+        self._by_code = False
 
     # -- tool dispatch -----------------------------------------------------------------
+    @property
+    def camera(self) -> str | None:
+        return next((a.get("camera") for a in self.catalogue.actions.get(self.zone, []) if a.get("camera")), None)
+
+    def _scope_error(self, name: str, args: dict) -> str:
+        """Every tool works on this episode's zone and its camera; a call about another one is refused."""
+        if "zone" in args and args["zone"] != self.zone:
+            return f"this investigation is about zone {self.zone!r}; call {name} with that zone"
+        if name in ("check_camera", "request_recalibration") and self.camera and args.get("camera") != self.camera:
+            return f"the camera of {self.zone!r} is {self.camera!r}"
+        return ""
+
     def call(self, name: str, args: dict) -> dict:
         t0 = time.perf_counter()
+        args = dict(args)
+        if name in ("get_zone_state", "cross_check_count", "locate_pushing", "measure_exit_flow", "forecast_action",
+                    "propose_action"):
+            args.setdefault("zone", self.zone)
         try:
-            if name == "forecast_action":
+            scope = self._scope_error(name, args)
+            if scope:
+                out = {"error": scope}
+            elif name == "forecast_action":
                 out = self._forecast(args)
             elif name == "propose_action":
                 out = self._propose(args)
@@ -184,6 +236,8 @@ class Episode:
             out = {"error": f"{type(e).__name__}: {e}"}
         ms = (time.perf_counter() - t0) * 1000
         rec = {"episode": self.id, "tool": name, "args": args, "result": out, "ms": round(ms, 1)}
+        if self._by_code:
+            rec["by"] = "code"  # a call the guards made, not the planner
         self.calls.append(rec)
         self.trace.write("tool_call", **rec)
         return out
@@ -201,7 +255,7 @@ class Episode:
                 "zone's future. Propose the action that keeps the peak lowest, or forecast kind none to show the zone stays below 4.5")
 
     def _forecast(self, a: dict) -> dict:
-        zone = a.get("zone", self.zone)
+        zone = self.zone
         kind = a.get("kind", "none")
         target = a.get("target", "") or ""
         same_kind = [x for x in self.catalogue.actions.get(zone, []) if x["kind"] == kind]
@@ -219,9 +273,12 @@ class Episode:
                                        "width_m": act.width_m}
         mins = None if fc.seconds_to_threshold is None else round(fc.seconds_to_threshold / 60, 1)
         err = spec.get("forecast_error")
-        self.forecast_actions[fc.id]["forecast_error"] = err
-        self.forecast_actions[fc.id]["held_at_entrance"] = round(fc.held_back_peak)
-        self.forecast_actions[fc.id]["longest_wait_min"] = round(fc.held_back_wait_s / 60, 1)
+        rec = self.forecast_actions[fc.id]
+        rec.update({"forecast_error": err, "forecast_error_max": spec.get("forecast_error_max", err),
+                    "queue_factor": spec.get("queue_factor", 1.0), "holding_area_m2": spec.get("holding_area_m2"),
+                    "held_at_entrance": round(fc.held_back_peak), "longest_wait_min": round(fc.held_back_wait_s / 60, 1)})
+        priced = self._option(fc.id).summary()
+        rec.update(priced)
         return {"forecast_id": fc.id, "action": fc.action, "density_now": round(fc.rho_now, 2),
                 "peak_density_10min": round(fc.peak_rho, 2), "minutes_to_threshold": mins,
                 "measured_forecast_error": err,
@@ -229,7 +286,56 @@ class Episode:
                 "threshold": fc.threshold, "net_rate_per_min": round(fc.net_rate_pps * 60, 1),
                 "inflow_per_min": round(fc.inflow_pps * 60, 1), "outflow_per_min": round(fc.outflow_pps * 60, 1),
                 "people_held_at_entrance_10min": round(fc.held_back_peak),
-                "longest_wait_at_entrance_min": round(fc.held_back_wait_s / 60, 1)}
+                "longest_wait_at_entrance_min": round(fc.held_back_wait_s / 60, 1), **priced}
+
+    def _option(self, fid: str) -> choice.Option:
+        a, f = self.forecast_actions[fid], self.forecasts[fid]
+        err = a.get("forecast_error") or 0.0
+        return choice.Option(fid, a["kind"], f.peak_rho, err, a.get("forecast_error_max") or err, f.held_back_peak,
+                             a.get("queue_factor") or 1.0, a.get("holding_area_m2"))
+
+    def _latest(self, tool: str) -> dict | None:
+        res = [c["result"] for c in self.calls if c["tool"] == tool and isinstance(c["result"], dict)
+               and "error" not in c["result"]]
+        return res[-1] if res else None
+
+    @property
+    def flagged_for_pushing(self) -> bool:
+        return any("pushing" in r for r in self.reasons)
+
+    def _missing_checks(self) -> list[str]:
+        """Measurements a proposal rests on that this episode has not made, or that failed."""
+        missing = []
+        state = self._latest("get_zone_state")
+        if state is None:
+            missing.append("get_zone_state")
+        elif state.get("feed", "live") != "live":
+            missing.append(f"a live feed: the zone's source is {state['feed']}")
+        if self.camera:
+            cams = [c["result"] for c in self.calls if c["tool"] == "check_camera"]
+            if not cams or not isinstance(cams[-1], dict) or "error" in cams[-1]:
+                missing.append(f"check_camera ({self.camera})")
+            elif not cams[-1].get("trusted", False):
+                missing.append(f"a trusted camera: {self.camera} failed its last check, call request_recalibration")
+        if self._latest("cross_check_count") is None:
+            missing.append("cross_check_count")
+        if self.flagged_for_pushing and self._latest("locate_pushing") is None:
+            missing.append("locate_pushing (the zone is flagged for pushing)")
+        return missing
+
+    def _complete_forecasts(self) -> None:
+        """Forecast every catalogue action the model did not, so the rule compares all of them."""
+        done = {(v["kind"], v["target"]) for v in self.forecast_actions.values()}
+        self._by_code = True
+        try:
+            for x in self.catalogue.actions.get(self.zone, []):
+                if x["kind"] != "none" and (x["kind"], x.get("target", "")) not in done:
+                    self.call("forecast_action", {"zone": self.zone, "kind": x["kind"], "target": x.get("target", ""),
+                                                  "rate_per_min": x.get("rate_per_min", 60)})
+            if not any(v["kind"] == "none" for v in self.forecast_actions.values()):
+                self.call("forecast_action", {"zone": self.zone, "kind": "none"})  # the baseline the steward compares with
+        finally:
+            self._by_code = False
 
     def _propose(self, a: dict) -> dict:
         fid = a.get("forecast_id", "")
@@ -238,25 +344,26 @@ class Episode:
         act = self.forecast_actions[fid]
         if act["kind"] == "none":
             return {"error": "the cited forecast is for no action; cite the forecast of the action you propose"}
+        missing = self._missing_checks()
+        if missing:
+            return {"error": "before proposing, this episode needs: " + "; ".join(missing)}
         radio = (a.get("radio_message") or "").strip()
-        if not radio or len(radio.split()) > 40:
-            return {"error": "radio_message must be present and at most 30 words"}
-        mine = self._ranked(fid)
-        better = [k for k in self.forecasts if k != fid and self.forecast_actions[k]["kind"] != "none"
-                  and DISRUPTION.get(self.forecast_actions[k]["kind"], 3) < DISRUPTION.get(act["kind"], 3)
-                  and self._ranked(k) <= mine + 0.25]
-        if better:
-            alt = self.forecast_actions[better[0]]
-            return {"error": f"{alt['kind']}:{alt['target']} is less disruptive and its peak with error "
-                             f"({self._ranked(better[0]):.2f}) is within 0.25/m2 of this one ({mine:.2f}); "
-                             f"propose it (forecast_id {better[0]})"}
-        ungrounded = self.ungrounded_numbers(radio)
-        if ungrounded:
-            return {"error": f"radio_message states {', '.join(ungrounded)}, which no tool returned in this episode; "
-                             "use only numbers from tool results"}
+        problems = self.radio_problems(radio)
+        if problems:
+            return {"error": "radio_message: " + "; ".join(problems)}
+        self._complete_forecasts()
+        options = [self._option(k) for k, v in self.forecast_actions.items() if v["kind"] != "none"]
+        ch = choice.choose(options)
+        if fid not in {o.key for o in ch.acceptable}:
+            c, mine = ch.chosen, self._option(fid)
+            ca = self.forecast_actions[c.key]
+            return {"error": f"the venue-wide rule proposes {ca['kind']}:{ca['target']} (forecast_id {c.key}): it "
+                             f"{ch.reason}. This action: zone peak with the largest tested error {mine.peak_worst:.2f}/m2, "
+                             f"about {mine.held_worst:.0f} people held outside"
+                             + ("" if mine.queue_rho_worst == 0 else
+                                f" ({'no declared waiting area' if mine.queue_rho_worst == float('inf') else f'{mine.queue_rho_worst:.1f}/m2 in the waiting area'})")
+                             + f". Propose forecast_id {c.key}"}
         fc = self.forecasts[fid]
-        if not any(v["kind"] == "none" for v in self.forecast_actions.values()):
-            self._forecast({"zone": a.get("zone", self.zone), "kind": "none"})  # the baseline the steward compares with
         alts = [{"forecast_id": k, **self.forecast_actions[k], "peak": round(f.peak_rho, 2),
                  "peak_with_error": None if self.forecast_actions[k].get("forecast_error") is None
                  else round(f.peak_rho + self.forecast_actions[k]["forecast_error"], 2),
@@ -265,37 +372,41 @@ class Episode:
         evidence = [c["tool"] for c in self.calls]
         images = [{"id": h["evidence_image"], "side": h.get("side"), "metres_before_gate": h.get("metres_before_gate"),
                    "peak_pushing_index": h.get("peak_pushing_index")}
-                  for c in self.calls if c["tool"] == "locate_pushing"
+                  for c in self.calls if c["tool"] == "locate_pushing" and isinstance(c["result"], dict)
                   for h in (c["result"].get("hotspots") or [])[:2] if h.get("evidence_image")]
+        rule = self._option(fid)
         self.proposal = Proposal(
-            id="pr_" + uuid.uuid4().hex[:10], zone=a.get("zone", self.zone), tier=self.tier.name, action=act,
+            id="pr_" + uuid.uuid4().hex[:10], zone=self.zone, tier=self.tier.name, action=act,
             forecast_id=fid, predicted={"peak_density": round(fc.peak_rho, 2), "curve_t": fc.curve_t,
                                         "curve_rho": [round(x, 3) for x in fc.curve_rho],
                                         "minutes_to_threshold": None if fc.seconds_to_threshold is None else round(fc.seconds_to_threshold / 60, 1)},
             alternatives=alts, radio=radio, rationale=(a.get("rationale") or "").strip(), evidence=evidence,
-            created_t=self.clock(), planner=self.planner, evidence_images=images[-2:])
+            created_t=self.clock(), planner=self.planner, evidence_images=images[-2:],
+            choice={"rule": "venue-wide", "reason": ch.reason if fid == ch.chosen.key else
+                    f"as safe as the rule's choice: {ch.reason}", **rule.summary(),
+                    "safe_density": choice.SAFE_RHO, "compared": len(options)})
         return {"ok": True, "proposal_id": self.proposal.id, "message": "sent to the steward for approval"}
 
-    def _ranked(self, fid: str) -> float:
-        """Peak density of a forecast plus the measured error of its action."""
-        return self.forecasts[fid].peak_rho + (self.forecast_actions[fid].get("forecast_error") or 0.0)
-
-    def ungrounded_numbers(self, text: str) -> list[str]:
-        """Numbers in `text` that match no number returned by a tool in this episode (or the
-        zone's catalogue), at the precision written. Zone names and gate letters are skipped."""
+    def _typed_values(self) -> tuple[dict[str, list[float]], list[float]]:
+        """Numbers returned by tools in this episode: by kind (from the field they came in),
+        and all of them, including numbers inside text results, the catalogue and the zone name."""
+        typed: dict[str, list[float]] = {k: [] for k in _FIELDS}
         known: list[float] = []
 
-        def walk(x):
-            if isinstance(x, bool):
+        def walk(x, key=""):
+            if isinstance(x, bool) or x is None:
                 return
             if isinstance(x, (int, float)):
                 known.append(float(x))
+                for kind, keys in _FIELDS.items():
+                    if key in keys:
+                        typed[kind].append(float(x))
             elif isinstance(x, dict):
-                for v in x.values():
-                    walk(v)
+                for k, v in x.items():
+                    walk(v, k)
             elif isinstance(x, (list, tuple)):
                 for v in x:
-                    walk(v)
+                    walk(v, key)
             elif isinstance(x, str):
                 known.extend(float(m) for m in re.findall(r"-?\d+(?:\.\d+)?", x))
 
@@ -303,14 +414,48 @@ class Episode:
             walk(c["result"])
         walk(self.catalogue.actions.get(self.zone, []))
         walk(self.zone)
+        th = Thresholds()
+        typed["density"] += [th.watch_rho, th.warn_rho, th.act_rho, th.critical_rho]
+        typed["minutes"].append(float(FORECAST_HORIZON_MIN))
+        return typed, known
+
+    def ungrounded_numbers(self, text: str) -> list[str]:
+        """Numbers in `text` that no tool returned in this episode as that kind of quantity, at the
+        precision written. The kind is read from the words after the number (per m2: a density;
+        minutes to, left or until: the zone's own minutes_to_4_5; per minute: a rate; m: metres;
+        people: a count). A number with no unit only has to match some tool result."""
+        typed, known = self._typed_values()
+        state = self._latest("get_zone_state") or {}
+        time_left = state.get("minutes_to_4_5")
         out = []
         for m in re.finditer(r"(?<![\w.])(\d+(?:\.\d+)?)", text):
-            tok = m.group(1)
+            tok, rest = m.group(1), text[m.end():]
             dec = len(tok.split(".")[1]) if "." in tok else 0
-            v = float(tok)
-            tol = 0.5 * 10 ** -dec + 1e-9
-            if not any(abs(abs(k) - v) <= tol for k in known):
-                out.append(tok)
+            v, tol = float(tok), 0.5 * 10 ** -dec + 1e-9
+            if _TIME_LEFT_RE.match(rest):
+                pool, kind = ([] if time_left is None else [float(time_left)]), "minutes to 4.5"
+            else:
+                kind = next((k for k, rx in _UNIT_RE if rx.match(rest)), None)
+                pool = typed[kind] if kind else known
+            if not any(abs(abs(k) - v) <= tol for k in pool):
+                out.append(f"{tok} ({kind})" if kind else tok)
+        return out
+
+    def radio_problems(self, radio: str) -> list[str]:
+        out = []
+        words = len(radio.split())
+        if not radio:
+            return ["the message is empty"]
+        if words > RADIO_MAX_WORDS:
+            out.append(f"{words} words; at most {RADIO_MAX_WORDS}")
+        short = self.zone.split(" - ")[0].lower()
+        if short not in radio.lower():
+            out.append(f"it must name the zone ({self.zone.split(' - ')[0]})")
+        if self.flagged_for_pushing and "push" not in radio.lower():
+            out.append("the zone is flagged for pushing: say that pushing is detected")
+        bad = self.ungrounded_numbers(radio)
+        if bad:
+            out.append(f"it states {', '.join(bad)}, which no tool returned in this episode as that kind of number")
         return out
 
     @property
@@ -362,48 +507,42 @@ def run_model(ep: Episode, client=None, model: str = MODEL_ID) -> Episode:
 
 
 def run_deterministic(ep: Episode) -> Episode:
-    """The same investigation without a model: fixed tool order, lowest predicted peak wins."""
+    """The same investigation without a model: fixed tool order, the venue-wide rule chooses."""
     ep.planner = "deterministic"
     ep.trace.write("agent_start", episode=ep.id, zone=ep.zone, tier=ep.tier.name, planner="deterministic")
     acts = [a for a in ep.catalogue.actions.get(ep.zone, []) if a["kind"] != "none"]
-    cam = next((a.get("camera") for a in ep.catalogue.actions.get(ep.zone, []) if a.get("camera")), None)
+    cam = ep.camera
     state = ep.call("get_zone_state", {"zone": ep.zone})
     if cam:
         c = ep.call("check_camera", {"camera": cam})
-        if not c.get("trusted", True):
-            ep.call("request_recalibration", {"camera": cam, "reason": c.get("reason", "camera moved")})
+        if not c.get("trusted", False):
+            ep.call("request_recalibration", {"camera": cam, "reason": c.get("reason") or c.get("error") or "camera check failed"})
             ep.trace.write("agent_end", episode=ep.id, planner="deterministic", recalibration=ep.recalibration)
             return ep
     ep.call("cross_check_count", {"zone": ep.zone})
-    spot = None
-    if any("pushing" in r for r in ep.reasons):
+    spot, pushing = None, ep.flagged_for_pushing
+    if pushing:
         hs = ep.call("locate_pushing", {"zone": ep.zone}).get("hotspots") or []
         spot = hs[0] if hs else None
     ep.call("measure_exit_flow", {"zone": ep.zone})
-    results = []
     for a in acts:
-        out = ep.call("forecast_action", {"zone": ep.zone, "kind": a["kind"], "target": a.get("target", ""),
-                                          "rate_per_min": a.get("rate_per_min", 60)})
-        if "forecast_id" in out:
-            disruption = DISRUPTION.get(a["kind"], 3)
-            ranked = out["peak_with_error"] if out.get("peak_with_error") is not None else out["peak_density_10min"]
-            results.append((ranked, disruption, out))
-    if not results:
+        ep.call("forecast_action", {"zone": ep.zone, "kind": a["kind"], "target": a.get("target", ""),
+                                    "rate_per_min": a.get("rate_per_min", 60)})
+    options = [ep._option(k) for k, v in ep.forecast_actions.items() if v["kind"] != "none"]
+    if not options:
         ep.call("no_action", {"reason": "no action available"})
         return ep
-    # the least disruptive action whose peak (with its measured error) is within 0.25/m2 of the lowest
-    lowest = min(r[0] for r in results)
-    results.sort(key=lambda r: (r[1], r[0]) if r[0] <= lowest + 0.25 else (99, r[0]))
-    best = results[0][2]
+    ch = choice.choose(options)
+    best = ep.forecasts[ch.chosen.key]
     mins = state.get("minutes_to_4_5")  # the zone as it is now, not under the action
-    rho = state.get("density", best["density_now"])
-    radio = (f"{ep.zone}: {rho:.1f} per square metre"
+    rho = state.get("density", best.rho_now)
+    where = (f", pushing {spot['side']} side {spot['metres_before_gate']:.1f} m before the gate" if spot
+             else ", pushing detected, not in one spot" if pushing else "")
+    radio = (f"{ep.zone.split(' - ')[0]}: {rho:.1f} per square metre"
              + (f", about {mins:.0f} minutes to 4.5" if mins is not None else ", not filling")
-             + (f", pushing {spot['side']} side {spot['metres_before_gate']:.1f} m before the gate" if spot else "")
-             + f". Proposed: {best['action']}.")
-    ep.call("propose_action", {"zone": ep.zone, "forecast_id": best["forecast_id"], "radio_message": radio,
-                               "rationale": f"lowest predicted peak with its measured forecast error ({results[0][0]}/m2) "
-                                            f"of {len(results)} actions compared"})
+             + where + f". Proposed: {best.action}.")
+    ep.call("propose_action", {"zone": ep.zone, "forecast_id": ch.chosen.key, "radio_message": radio,
+                               "rationale": f"venue-wide rule over {len(options)} actions: {ch.reason}"})
     ep.trace.write("agent_end", episode=ep.id, planner="deterministic", proposal=ep.proposal.id if ep.proposal else None)
     return ep
 

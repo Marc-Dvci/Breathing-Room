@@ -53,6 +53,52 @@ def test_with_accounts_the_pin_names_the_steward_even_in_the_demo(monkeypatch):
     assert e.value.status_code == 403
 
 
+def test_production_hides_frames_crops_state_record_and_report_until_a_steward_signs_in(monkeypatch):
+    monkeypatch.setattr(api, "STEWARDS", Stewards({"Ana": hash_pin("246810", iterations=1000)}))
+    monkeypatch.setattr(api, "MODE", "production")
+    monkeypatch.setattr(api, "MCP_TOKEN", "")
+    for path in ("/api/camera.jpg", "/api/evidence/ev_1.jpg", "/api/state", "/api/trace", "/report", "/api/trace/verify"):
+        assert not api.may_read(path, None)
+        assert not api.may_read(path, "forged.cookie")
+    for path in ("/", "/static/app.js", "/health", "/api/session", "/api/mode"):
+        assert api.may_read(path, None)  # the sign-in page and the health check
+    good = api.session_cookie("Ana")
+    assert api.session_name(good) == "Ana" and api.may_read("/api/camera.jpg", good)
+    assert api.session_name(api.session_cookie("Ana", now=0)) is None  # expired
+    assert api.session_name(api.session_cookie("Ben")) is None  # no such steward (or the account was removed)
+    b64, sig = good.split(".")
+    assert api.session_name(b64 + "." + "0" * len(sig)) is None
+    # the MCP endpoint needs its own token, and stays closed without one
+    assert not api.may_read("/mcp", good)
+    monkeypatch.setattr(api, "MCP_TOKEN", "s3cret-token")
+    assert api.may_read("/mcp", None, "Bearer s3cret-token") and not api.may_read("/mcp", None, "Bearer guess")
+    monkeypatch.setattr(api, "MODE", "demo")
+    assert api.may_read("/api/camera.jpg", None)  # the public demonstration, disclosed as such
+
+
+def test_evidence_crops_expire_and_a_silent_zone_is_reported_and_not_investigated(tmp_path, monkeypatch):
+    from breathingroom import runtime as rtm
+
+    cam = SimpleNamespace(evidence={"ev_old": (0.0, b"jpg"), "ev_new": (rtm.time.time(), b"jpg")}, frame_lock=rtm.threading.Lock())
+    assert rtm.CameraZone.evidence_image(cam, "ev_new") == b"jpg"
+    assert rtm.CameraZone.evidence_image(cam, "ev_old") is None and "ev_old" not in cam.evidence
+    rt = rtm.Runtime(tmp_path / "t.jsonl", use_model=False, camera=None, seed=1, twin_warmup_s=60)
+    rt.running = True
+    zone = rt.twin.name
+    rt._feed(zone, True)
+    assert rt.health()["ok"]
+    monkeypatch.setattr(rtm, "FEED_STALE_S", 0.0)
+    rt._feed(zone, False, "OSError: camera unreachable")
+    h = rt.health()
+    assert not h["ok"] and h["zones"][zone].startswith("lost")
+    assert rt.tools_for(zone)["get_zone_state"](zone)["feed"].startswith("lost")
+    assert not rt.twin.state.trusted or "feed lost" in " ".join(rt.twin.state.reasons)
+    assert zone not in rt.active_episode
+    monkeypatch.setattr(rtm, "FEED_STALE_S", 10.0)
+    rt._feed(zone, True)
+    assert rt.health()["ok"]
+
+
 def _rewrite_without_key(path, change):
     """What someone who can rewrite the file but has no key can do: edit, then re-hash the chain."""
     prev, out = "0" * 64, []

@@ -9,15 +9,24 @@ evenings that never reached it.
 
 From the moment the investigation opens, every action is simulated as the console would propose
 it, and two things are recorded: the zone's peak, and the people the action keeps waiting before
-the gates (the twin counts them: metering and holding move part of the crowd upstream). The
-console's choice (least disruptive within 0.25/m2 of the lowest peak plus measured error, the
-error measured on the reference venue only) is compared with the best action in hindsight and
-with fixed rules such as "always meter both gates".
+the gates (the twin counts them: metering and holding move part of the crowd upstream).
+
+Two choices are scored on the same simulations:
+- the console's venue-wide rule (breathingroom.choice), which judges each action on the zone and
+  on the waiting area before the gates it restricts: zone peak plus the largest error that
+  action's forecast made on the reference venue, and people held times the largest factor by
+  which the queue forecast fell short there, over the waiting area (GATE_DEPTH_M deep across the
+  street before each gate, the console's assumption for its own venue);
+- the earlier rule, on the zone's peak alone (least disruptive within 0.25/m2 of the lowest peak
+  plus mean error), kept for comparison: it meters both gates and holds hundreds outside.
+Each is scored on what the twin then did: the zone's peak, the people held, their density in
+the waiting area, and the densest of the two places against the best action in hindsight.
 
 Layouts: the reference venue, the seven of test_b_venues, and two with a wide second door, where
 opening it competes with metering.
 
-    python eval/test_b_policy.py      # after eval/test_b_twin.py; about an hour on one core
+    python eval/test_b_policy.py          # after eval/test_b_twin.py; about an hour on one core
+    python eval/test_b_policy.py --score  # score the saved simulations again
 """
 
 from __future__ import annotations
@@ -32,6 +41,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "eval"))
+from breathingroom import choice as rule  # noqa: E402
 from breathingroom import twin as tw  # noqa: E402
 from breathingroom.physics import forecast  # noqa: E402
 from breathingroom.policy import Thresholds, Tier, TierPolicy, ZoneReading  # noqa: E402
@@ -43,6 +53,9 @@ OUT = ROOT / "eval" / "results"
 TH = Thresholds()
 SEEDS = (0, 1, 2)
 ACTION_S = 300  # each action is simulated, and forecast, over 5 minutes from the investigation
+GATE_DEPTH_M = 20.0  # waiting area before each gate: this deep, across half the street (runtime.GATE_AREA_M2 on the reference venue)
+KIND = {"open second exit door": "open_exit", "meter both gates to 150/min": "meter_entry",
+        "meter gate A to 60/min": "meter_entry", "hold both gates": "hold_entry"}
 LAYOUTS = {"reference venue": tw.DEFAULT, **VENUES,
            "wide second door": tw.Layout(length=30, width=8, exit_width=1.6, door_width=2.8, demand=1.6 / 2.4),
            "door wider than exit": tw.Layout(length=25, width=7, exit_width=1.8, door_width=2.2, demand=1.8 / 2.4)}
@@ -114,19 +127,26 @@ def run(L: tw.Layout, seed: int) -> dict:
     return res
 
 
-def choose_enough(peak: dict[str, float], held: dict[str, float], safe: float = TH.warn_rho) -> str:
-    """An alternative rule, scored here and not used by the console: the least disruptive action
-    whose peak plus measured error stays below the WARN density, fewest people held outside first;
-    if none does, the console's rule."""
-    ok = [n for n in peak if peak[n] < safe]
-    if not ok:
-        return choose(peak)
-    return min(ok, key=lambda n: (DISRUPTION[n], held[n], peak[n]))
+def waiting_area(L: tw.Layout, name: str) -> float:
+    """m2 before the gates an action restricts (both gates for actions that restrict none: the
+    queue the gates build on their own waits there too)."""
+    per_gate = L.width / 2 * GATE_DEPTH_M
+    return per_gate if name == "meter gate A to 60/min" else 2 * per_gate
+
+
+def venue_rule(acts: dict, L: tw.Layout, err: dict, queue: dict) -> str:
+    """The console's choice (breathingroom.choice) from the forecasts made at the investigation."""
+    opts = [rule.Option(n, KIND[n], acts[n]["predicted_peak"], err[n]["mean"], err[n]["max"], acts[n]["predicted_held"],
+                        queue.get(n, 1.0), waiting_area(L, n) if KIND[n] in ("meter_entry", "hold_entry") else None)
+            for n in DISRUPTION]
+    return rule.choose(opts).chosen.key
 
 
 def score(out: dict, ref: dict) -> dict:
-    ref_acts = [v["actions"] for v in ref["seeds"].values() if v["actions"]]
-    err = {n: max(0.0, float(np.mean([a[n]["simulated_peak"] - a[n]["predicted_peak"] for a in ref_acts]))) for n in DISRUPTION}
+    from breathingroom.runtime import forecast_skill, queue_skill
+
+    err = forecast_skill(OUT / "test_b_twin.json")  # mean and largest error per action, reference venue
+    queue = queue_skill(OUT / "test_b_policy.json")  # largest queue shortfall per action, reference venue
     runs = [(name, s, r) for name, seeds in out["venues"].items() for s, r in seeds.items()]
     crossed = [r for _, _, r in runs if r["cross_4_5_s"] is not None]
     not_crossed = [r for _, _, r in runs if r["cross_4_5_s"] is None]
@@ -135,21 +155,43 @@ def score(out: dict, ref: dict) -> dict:
         acts = r["actions"]
         if not acts:
             continue
+        L = LAYOUTS[name]
         best_peak = min(acts[n]["simulated_peak"] for n in DISRUPTION)
         best = min(DISRUPTION, key=lambda n: (acts[n]["simulated_peak"], DISRUPTION[n]))
-        chosen = choose({n: acts[n]["predicted_peak"] + err[n] for n in DISRUPTION})
-        enough = choose_enough({n: acts[n]["predicted_peak"] + err[n] for n in DISRUPTION},
-                               {n: acts[n]["predicted_held"] for n in DISRUPTION})
+        # what each action did to the densest place it touches: the zone or the waiting area
+        worst = {n: max(acts[n]["simulated_peak"], acts[n]["simulated_held"] / waiting_area(L, n)) for n in DISRUPTION}
+        best_worst = min(worst.values())
+        chosen = choose({n: acts[n]["predicted_peak"] + err[n]["mean"] for n in DISRUPTION})  # zone peak only
+        console = venue_rule(acts, L, err, queue)
         # the gentlest action whose simulated peak is within 0.05/m2 of the best: the right answer in hindsight
         right = min((n for n in DISRUPTION if acts[n]["simulated_peak"] <= best_peak + 0.05), key=lambda n: DISRUPTION[n])
-        rows.append({"venue": name, "seed": s, "best": best, "gentlest_near_best": right, "chosen": chosen,
+
+        def out_of(n):
+            return {"zone_peak": round(acts[n]["simulated_peak"], 2), "held": round(acts[n]["simulated_held"]),
+                    "waiting_area_m2": waiting_area(L, n),
+                    "waiting_density": round(acts[n]["simulated_held"] / waiting_area(L, n), 2),
+                    "densest_place": round(worst[n], 2), "regret_densest_place": round(worst[n] - best_worst, 2),
+                    "regret_zone_peak": round(acts[n]["simulated_peak"] - best_peak, 2)}
+
+        rows.append({"venue": name, "seed": s, "best": best, "gentlest_near_best": right,
+                     "best_densest_place": min(worst, key=worst.get),
+                     "venue_rule": console, "venue_rule_outcome": out_of(console),
+                     "chosen": chosen, "peak_only_outcome": out_of(chosen),
                      "regret": round(acts[chosen]["simulated_peak"] - best_peak, 2),
                      "held_by_chosen": round(acts[chosen]["simulated_held"]),
                      "held_predicted_for_chosen": round(acts[chosen]["predicted_held"]),
                      "held_without_action": round(acts["no action"]["simulated_held"]),
-                     "chosen_enough": enough, "peak_enough": round(acts[enough]["simulated_peak"], 2),
-                     "held_by_enough": round(acts[enough]["simulated_held"]),
                      **{f"regret_always_{n}": round(acts[n]["simulated_peak"] - best_peak, 2) for n in DISRUPTION}})
+
+    def outcome(key):
+        o = [r[key] for r in rows]
+        return {"zone_peak_max": max(x["zone_peak"] for x in o), "zone_peak_below_warn": sum(x["zone_peak"] < TH.warn_rho for x in o),
+                "held_median": float(np.median([x["held"] for x in o])), "held_max": max(x["held"] for x in o),
+                "waiting_density_max": max(x["waiting_density"] for x in o),
+                "densest_place_max": max(x["densest_place"] for x in o),
+                "regret_densest_place_mean": round(float(np.mean([x["regret_densest_place"] for x in o])), 2),
+                "regret_densest_place_max": max(x["regret_densest_place"] for x in o),
+                "regret_zone_peak_mean": round(float(np.mean([x["regret_zone_peak"] for x in o])), 2)}
     metered = [(a["predicted_held"], a["simulated_held"]) for _, _, r in runs for n, a in r["actions"].items()
                if n.startswith(("meter", "hold"))]
     p, q = np.array(metered).T if metered else (np.zeros(0), np.zeros(0))
@@ -167,16 +209,17 @@ def score(out: dict, ref: dict) -> dict:
         "warn_in_those": sum(r["warn_s"] is not None for r in not_crossed),
         "act_in_those": sum(r["act_s"] is not None for r in not_crossed),
         "peak_in_those": stat([r["peak_rho"] for r in not_crossed]),
-        "error_priced_from_reference": {n: round(e, 2) for n, e in err.items()},
+        "error_priced_from_reference": err, "queue_factor_from_reference": queue,
+        "waiting_area": f"{GATE_DEPTH_M:.0f} m deep across half the street before each gate",
         "choice": rows,
+        "venue_rule": {"chosen_counts": {n: sum(r["venue_rule"] == n for r in rows) for n in DISRUPTION},
+                       "best_densest_place_counts": {n: sum(r["best_densest_place"] == n for r in rows) for n in DISRUPTION},
+                       **outcome("venue_rule_outcome")},
+        "peak_only_rule": {"chosen_counts": {n: sum(r["chosen"] == n for r in rows) for n in DISRUPTION},
+                           **outcome("peak_only_outcome")},
         "chosen_counts": {n: sum(r["chosen"] == n for r in rows) for n in DISRUPTION},
         "gentlest_near_best_counts": {n: sum(r["gentlest_near_best"] == n for r in rows) for n in DISRUPTION},
         "regret_under_0_25": sum(r["regret"] < 0.25 for r in rows),
-        "rule_enough": {"chosen_counts": {n: sum(r["chosen_enough"] == n for r in rows) for n in DISRUPTION},
-                        "zone_peak_below_warn": sum(r["peak_enough"] < TH.warn_rho for r in rows),
-                        "zone_peak_max": max((r["peak_enough"] for r in rows), default=None),
-                        "held_median": float(np.median([r["held_by_enough"] for r in rows])) if rows else None,
-                        "held_median_console_rule": float(np.median([r["held_by_chosen"] for r in rows])) if rows else None},
         "mean_regret": round(float(np.mean([r["regret"] for r in rows])), 2) if rows else None,
         "mean_regret_always": {n: round(float(np.mean([r[f"regret_always_{n}"] for r in rows])), 2) for n in DISRUPTION} if rows else None,
         "held_upstream": {"metering_or_holding_runs": len(metered),
