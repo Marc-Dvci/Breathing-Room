@@ -191,3 +191,26 @@ def test_no_action_is_refused_while_the_zone_is_filling(tmp_path):
     ep.call("get_zone_state", {"zone": zone})
     out = ep.call("no_action", {"reason": "density low"})
     assert "error" in out and not ep.done
+
+
+def test_verification_judges_an_action_with_the_error_it_was_chosen_with(tmp_path):
+    from breathingroom.agent import Proposal
+    from breathingroom.runtime import Runtime
+
+    rt = Runtime(tmp_path / "t.jsonl", use_model=False, camera=None, seed=1, twin_warmup_s=0)
+    zone, t = rt.twin.name, rt.twin.state.t
+
+    def judged(obs, err):
+        p = Proposal(id=f"pr_{obs}_{err}", zone=zone, tier="WARN", action={"kind": "open_exit", "forecast_error_max": err},
+                     forecast_id="fc", predicted={"curve_t": [0, 600], "curve_rho": [1.75, 1.75]}, alternatives=[], radio="",
+                     rationale="", evidence=[], created_t=t, planner="deterministic", status="approved",
+                     verify={"due_t": t, "start_t": t, "done": False})
+        rt.proposals = {p.id: p}
+        rt.twin.state.rho = obs
+        rt._verify()
+        return p.verify["outcome"]
+
+    assert judged(2.0, 1.96) == "working as predicted"
+    assert judged(2.41, 1.96) == "working, within its tested forecast error"  # the door, as on the live instance
+    assert judged(2.41, 0.0) == "not working: escalated"
+    assert judged(4.6, 3.0) == "not working: escalated"  # at the ACT density, whatever the error

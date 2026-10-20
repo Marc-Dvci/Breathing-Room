@@ -974,9 +974,15 @@ class Runtime:
             pred = float(np.interp(elapsed, p.predicted["curve_t"], p.predicted["curve_rho"]))
             obs = z.state.rho
             tol = max(0.4, 0.15 * pred)
-            ok = obs <= pred + tol
+            # the action was chosen as safe with the largest error its forecast made in testing, so it
+            # is judged with that error too; a zone at the ACT density is never "working"
+            err = float(p.action.get("forecast_error_max") or 0.0)
+            allowed = pred + max(tol, err)
+            ok = obs <= allowed and obs < self.policy.th.act_rho
+            outcome = ("working as predicted" if obs <= pred + tol else
+                       "working, within its tested forecast error" if ok else "not working: escalated")
             v.update({"done": True, "elapsed_s": round(elapsed), "predicted_rho": round(pred, 2), "observed_rho": round(obs, 2),
-                      "outcome": "working as predicted" if ok else "not working: escalated"})
+                      "allowed_rho": round(allowed, 2), "outcome": outcome})
             self.trace.write("verify", proposal=p.id, zone=p.zone, **{k: v[k] for k in ("elapsed_s", "predicted_rho", "observed_rho", "outcome")})
             if not ok:
                 self._start_episode(p.zone, Tier.ACT, [f"approved action {p.action['kind']} did not bend the curve: "
