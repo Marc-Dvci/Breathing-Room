@@ -97,6 +97,10 @@ def test_guards_refuse_uncited_or_unlisted_actions_and_other_zones(tmp_path):
     assert "error" in ep.call("propose_action", {"zone": "Zone C", "forecast_id": "fc_made_up", "radio_message": "x", "rationale": ""})
     assert "error" in ep.call("forecast_action", {"zone": "Zone C", "kind": "open_exit", "target": "fire door"})
     assert "error" in ep.call("forecast_action", {"zone": "Zone D", "kind": "open_exit"})
+    # a metering rate is the venue's, like a door's width: the forecast error was measured at it
+    assert "60 people/min" in ep.call("forecast_action", {"zone": "Zone C", "kind": "meter_entry", "target": "gate A",
+                                                          "rate_per_min": 45})["error"]
+    assert ep.call("forecast_action", {"zone": "Zone C", "kind": "meter_entry", "target": "gate A", "rate_per_min": 60})["forecast_id"]
     ok = ep.call("forecast_action", {"zone": "Zone C", "kind": "open_exit"})
     assert "error" in ep.call("propose_action", {"zone": "Zone D", "forecast_id": ok["forecast_id"],
                                                  "radio_message": "Zone C filling, open the side door.", "rationale": ""})
@@ -130,6 +134,21 @@ def test_radio_numbers_must_come_from_tools_as_the_same_kind_of_number(tmp_path)
     assert good.get("ok")
 
 
+def test_radio_asks_for_the_action_proposed_and_nothing_else(tmp_path):
+    ep = checked(episode(tmp_path))
+    ok = ep.call("forecast_action", {"zone": "Zone C", "kind": "open_exit"})
+
+    def propose(radio):
+        return ep.call("propose_action", {"zone": "Zone C", "forecast_id": ok["forecast_id"], "radio_message": radio,
+                                          "rationale": "r"})
+
+    # the steward reads the message out: citing the door's forecast cannot broadcast another action
+    assert "hold" in propose("Zone C filling. Open the side door and hold the gates.")["error"]
+    assert "must say the action" in propose("Zone C filling. Evacuate the street now.")["error"]
+    assert "gate a" in propose("Zone C filling: open the side door, wave everyone through gate A.")["error"]
+    assert propose("Zone C at 3.8 per square metre. Please open the side door.")["ok"]
+
+
 def test_minutes_to_4_5_cannot_be_stated_when_the_zone_is_not_filling(tmp_path):
     ep = checked(episode(tmp_path, state={"zone": "Zone C", "density": 1.4, "minutes_to_4_5": None}))
     ep.call("forecast_action", {"zone": "Zone C", "kind": "open_exit"})  # its forecast has minutes of its own
@@ -156,7 +175,7 @@ def test_approval_forecasts_the_action_again_and_applies_it(tmp_path):
 def test_guard_refuses_an_action_that_moves_the_crowd_into_the_waiting_area(tmp_path):
     ep = checked(episode(tmp_path))
     hold = ep.call("forecast_action", {"zone": "Zone C", "kind": "hold_entry", "target": "gates"})
-    meter = ep.call("forecast_action", {"zone": "Zone C", "kind": "meter_entry", "target": "gate A", "rate_per_min": 1})
+    meter = ep.call("forecast_action", {"zone": "Zone C", "kind": "meter_entry", "target": "gate A"})  # the venue's 60/min
     assert hold["people_held_at_entrance_10min"] > 60 * 3.5 and not hold["safe"]
     out = ep.call("propose_action", {"zone": "Zone C", "forecast_id": meter["forecast_id"], "radio_message": "Zone C. Meter gate A.",
                                      "rationale": "r"})

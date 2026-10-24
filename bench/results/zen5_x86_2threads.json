@@ -1,0 +1,64 @@
+{
+ "label": "zen5-x86, 2 threads",
+ "opencv_version": "5.0.0",
+ "threads": 2,
+ "cpu": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+ "machine": "AMD64",
+ "note": "bench/bench_stages.py --group dmcount --threads 2 --n 30, 24 Oct 2026, same frames and models as the Graviton run; whole_frame_by_input_size: frame 750 of the same run through DensityModel at max_side 960 and 1280, 2 warm-up + 4 timed runs per engine (median), with the count each engine returned",
+ "stages": {
+  "dmcount_sha_new_zone_crop": {
+   "median_ms": 2057.3555000009947,
+   "p90_ms": 2176.699150004424,
+   "n": 6
+  },
+  "dmcount_sha_new_960x720": {
+   "median_ms": 3468.6140500125475,
+   "p90_ms": 3612.630699935835,
+   "n": 6
+  },
+  "dmcount_sha_classic_zone_crop": {
+   "median_ms": 1948.7118500401266,
+   "p90_ms": 2057.2518999688327,
+   "n": 6
+  },
+  "dmcount_sha_classic_960x720": {
+   "median_ms": 3575.9242000058293,
+   "p90_ms": 5553.570550051518,
+   "n": 6
+  }
+ },
+ "whole_frame_by_input_size": {
+  "new_960": {
+   "median_ms": 3894,
+   "input": [
+    960,
+    720
+   ],
+   "count": 13.74
+  },
+  "new_1280": {
+   "median_ms": 8368,
+   "input": [
+    1280,
+    960
+   ],
+   "count": 14.48
+  },
+  "classic_960": {
+   "median_ms": 3689,
+   "input": [
+    960,
+    720
+   ],
+   "count": 13.74
+  },
+  "classic_1280": {
+   "median_ms": 6500,
+   "input": [
+    1280,
+    960
+   ],
+   "count": 14.48
+  }
+ }
+}

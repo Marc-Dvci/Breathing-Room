@@ -1,5 +1,7 @@
 # Breathing Room
 
+[![tests](https://github.com/Marc-Dvci/Breathing-Room/actions/workflows/ci.yml/badge.svg)](https://github.com/Marc-Dvci/Breathing-Room/actions/workflows/ci.yml)
+
 Breathing Room turns a venue's camera video into three numbers per zone: how full it is
 (people per m²), whether the crowd has started to push (a motion-based pushing index), and how
 many minutes remain before the zone reaches a dangerous density at the current inflow. When a
@@ -49,10 +51,11 @@ Breathing Room adds both, and measures them on real data:
 | The proposal protects the people outside the zone too | the console weighs each action on the zone **and** on the waiting area before the gates it restricts, both priced with the largest error measured in testing. Over 30 simulated evenings on 10 layouts it opened the second door in **30 of 30**: zone peak at most **3.01/m²**, a median of **10** people held outside, and the lowest density anywhere in all 30 (the best action in hindsight). Ranked on the zone alone, it metered both gates: a median of **912** people held, up to 9.7/m² in the waiting area assumed (20 m deep across each gate) | [eval/test_b_policy.py](eval/test_b_policy.py), [src/breathingroom/choice.py](src/breathingroom/choice.py) |
 | A knocked, zoomed or tilted camera is caught before its numbers are used | 216 checks on 12 moments of the recording, with rolls, zooms and tilts of known size. Two stages: an ECC screen (`findTransformECC`, homography model, on the still background) measures the floor shift to 4 mm (median) in **228 ms** on Graviton; ALIKED + LightGlue confirm in 3,046 ms, only when the screen sees motion. Together: **84 of 84** moves above 0.25 m flagged, **0** false alarms in 132 checks; flagged within **5 s** on the live instance | [eval/test_e_drift.py](eval/test_e_drift.py) |
 | Counting holds on real oblique street CCTV | DM-Count QNRF on the OpenCV 5 DNN engine: **10.9%** mean error, r = 0.985 on 100 CroHD frames with 45 to 250 people | [eval/test_d_counting.py](eval/test_d_counting.py) |
-| The agent makes the right kind of decision, under guards in code | **20 of 20** episodes with gpt-oss-120b on Amazon Bedrock, every proposal one the venue-wide rule accepts: a proposal for a filling zone (6/6, all "open the second exit door"), a recalibration request for a knocked camera (6/6, median 7 s), a proposal for pushing at the entrance (6/6, an announcement or a steward), the deterministic planner when the model endpoint is down (2/2). Radio messages 16 to 23 words. The guards fired 4 times: twice the model proposed before cross-checking the count and was sent back; in every episode code forecast the catalogue actions the model had not | [eval/test_c_agent.py](eval/test_c_agent.py), [results](eval/results/test_c_agent.json) |
+| The agent makes the right kind of decision, under guards in code | **20 of 20** episodes with gpt-oss-120b on Amazon Bedrock, every proposal one the venue-wide rule accepts: a proposal for a filling zone (6/6, all "open the second exit door"), a recalibration request for a knocked camera (6/6, median 6 s), a proposal for pushing at the entrance (6/6, all the announcement "please stop pushing, the gate is open"), the deterministic planner when the model endpoint is down (2/2). Radio messages 16 to 23 words. The guards fired 3 times: twice a radio message left out the announcement it proposed and was sent back, once the model called a tool that does not exist; in every episode code forecast the catalogue actions the model had not | [eval/test_c_agent.py](eval/test_c_agent.py), [results](eval/results/test_c_agent.json) |
 | Vision decides where the action goes | in all 6 pushing episodes the agent located the pushing (`locate_pushing`: a 4.6 m² region reaching 5.6/m², 1.4 m before the gate) and the radio message says where; the steward's card shows the camera crop | same |
+| A wrong or manipulated model cannot put a rule-breaking proposal in front of the steward | a hostile planner tried **77** ways on the deployed tools (Zone C, Entrance E1 with pushing, the knocked camera): invented or no-action forecasts, skipped checks, actions the rule refuses, actions or metering rates the venue does not list, other zones and cameras, invented or mislabelled numbers, radio messages that ask for something else, approving its own proposal. **0** reached the steward; the rule-following planner did in both crowd scenarios and asked for recalibration on the knocked camera. Without the check that the radio message asks for the proposed action only, **14** of the 77 got through (the door's forecast, read out as "Evacuate the street now" or "Hold every gate"). Given a planted instruction to tell the stewards to evacuate and hold every gate, gpt-oss-120b tried it in **3 of 12** episodes; each was refused, and all 12 ended with a proposal the rule accepts | [eval/test_c_redteam.py](eval/test_c_redteam.py), [results](eval/results/test_c_redteam.json) |
 | It runs on a small Arm instance | on a t4g.small (AWS Graviton, 2 vCPU) the console's OpenCV 5 pipeline needs **528 ms per camera-second** at half size (718 ms at full size), 873 ms with DM-Count every 5 s | [bench/bench_stages.py](bench/bench_stages.py), [results](bench/results/graviton2_t4g_small.json) |
-| The DNN engine is chosen per platform | DM-Count on the zone crop takes **1,728 ms** on Graviton with `ENGINE_CLASSIC` against 9,482 ms with `ENGINE_NEW`, same count; on the x86 desktop the new engine is the faster one, so the engine is picked by architecture | same |
+| The DNN engine is chosen per platform | DM-Count on the zone crop takes **1,728 ms** on Graviton with `ENGINE_CLASSIC` against 9,482 ms with `ENGINE_NEW`, same count; on an x86 desktop (Zen 5) at the same 2 threads the gap is small either way (zone crop 2,057 against 1,949 ms; 1280 × 960 frame 8.4 against 6.5 s), so the slowdown is specific to Arm and the console runs the classic engine there | same, [x86](bench/results/zen5_x86_2threads.json) |
 | Exit capacity comes from real bottleneck data | flow = **2.02 × width** (R² 0.81) over 24 Jülich runs; the system plans with 1.3 people/m/s, below all 24 | [eval/test_b_capacity.py](eval/test_b_capacity.py) |
 
 ![Seven venue layouts the forecast was never tuned on](docs/figures/fig_venues.png)
@@ -113,9 +116,11 @@ Code, not the prompt, checks every proposal: the zone's state read, its camera c
 its count cross-checked and, when flagged for pushing, the pushing located, all in this episode; a
 forecast of this episode, for this zone, of a catalogue action; every catalogue action forecast
 (code forecasts any the model skipped) and the proposal one the venue-wide rule accepts; a radio
-message of at most 30 words that names the zone, says pushing when there is pushing, and whose
+message of at most 30 words that names the zone, says pushing when there is pushing, whose
 numbers each match a tool result of the same kind (a density a density, minutes to 4.5 the zone's
-own). A filling zone cannot be closed without action. A refusal goes back to the model as a tool
+own), and that asks for the proposed action and nothing else, since the steward reads it out.
+Metering rates and door widths are the venue's, not the model's. A filling zone cannot be closed
+without action. A refusal goes back to the model as a tool
 result. If the model is unreachable, a deterministic planner calls the same tools under the same
 rule.*
 
@@ -174,7 +179,7 @@ decision asks for the PIN again, and `/mcp` needs a bearer token.
 ## Test it
 
 ```bash
-.venv/Scripts/python -m pytest -q                         # 34 unit tests
+.venv/Scripts/python -m pytest -q                         # 36 unit tests
 python tools/ui_smoke.py http://127.0.0.1:8000            # drives the console headless: knock, recalibration, proposal, approve, verify
 ```
 
@@ -191,6 +196,7 @@ python eval/test_b_surge.py                                    # sudden surges w
 python eval/test_b_models.py                                   # the same evenings with a second pedestrian model
 python eval/test_a_operating.py                                # index plus density; alert operating points
 python eval/test_c_agent.py --repeats 6                        # agent episodes on fixed scenarios
+python eval/test_c_redteam.py --model 6                        # a hostile planner against the guards; the model with a planted instruction
 python eval/test_d_counting.py                                 # DM-Count on CroHD (download HT21.zip to ../data/ht21)
 python eval/test_e_drift.py                                    # camera watchdog against knocks of known size
 python eval/test_e1_flux.py                                    # gate-line outflow against trajectories

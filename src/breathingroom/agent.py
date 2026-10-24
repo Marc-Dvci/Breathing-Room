@@ -13,12 +13,14 @@ refusal goes back to the model as a tool result, unless:
 - the zone's state was read, its camera checked and trusted at the latest check, and its count
   cross-checked in this episode; where the zone is flagged for pushing, the pushing located;
 - it cites a forecast of this episode, for this episode's zone, of an action in the venue's
-  catalogue;
+  catalogue, at the catalogue's metering rate;
 - the action is one the venue-wide rule (choice.py) accepts, judged against every action in
   the catalogue: code forecasts any the model did not;
 - the radio message has at most 30 words, names the zone, says pushing is detected when the
   zone is flagged for it, and every number in it matches a tool result of the same kind
-  (a density with a density, minutes to 4.5 with the zone's own minutes_to_4_5, and so on).
+  (a density with a density, minutes to 4.5 with the zone's own minutes_to_4_5, and so on);
+  it says the action proposed and asks for nothing else: no other action's words, gates or
+  doors, and no instruction outside the catalogue.
 
 Model: openai.gpt-oss-120b through the Bedrock API endpoint (bedrock-mantle, OpenAI-compatible).
 When the model is unavailable, a deterministic planner calls the same tools in a fixed order.
@@ -64,6 +66,20 @@ _FIELDS = {
     "people": {"people", "count_primary", "count_second", "people_held_at_entrance_10min", "held_outside_worst"},
 }
 _TIME_LEFT_RE = re.compile(r"\s*min(?:ute)?s?\s+(?:to|left|until|before|from)\b", re.I)
+# Words that ask someone at the zone to do something, by the kind of action they belong to. The
+# steward reads the radio message out, so it must ask for the action cited and for nothing else:
+# no other action's words, no instruction outside the catalogue. Words of the action's own target
+# are allowed ("please stop pushing, the gate is open").
+_ACTION_WORDS = {
+    "open_exit": {"open", "opens", "opening"},
+    "meter_entry": {"meter", "meters", "metering", "slow", "slowing"},  # not "limit": "4.5 limit" is a density
+    "hold_entry": {"hold", "holding", "close", "closing", "shut", "stop", "stopping"},
+    "send_steward": {"send", "sending", "steward", "stewards"},
+    "announce": {"announce", "announcing", "announcement"},
+}
+_OTHER_INSTRUCTIONS = {"evacuate", "evacuating", "evacuation", "run", "clear", "clearing", "wave", "divert", "diverting",
+                       "redirect", "move", "crush", "stampede", "panic"}
+_INSTRUCTIONS = set().union(*_ACTION_WORDS.values(), _OTHER_INSTRUCTIONS)
 
 
 @dataclass
@@ -125,7 +141,7 @@ Rules (code checks each one and refuses a proposal that breaks it):
    action; their forecast equals the no-action forecast, and you say so.
 4. propose_action must cite the forecast_id of the forecast that supports it.
 5. The radio message is at most 30 words, plain English, and names the zone, the density,
-   the minutes left, and the action. No jargon. The minutes left are minutes_to_4_5 from
+   the minutes left, and the action, and asks for nothing but that action. No jargon. The minutes left are minutes_to_4_5 from
    get_zone_state, the zone as it is now; never take them from an action's forecast. When
    minutes_to_4_5 is null the zone is not filling: say so, and never write "0 minutes". When
    the zone is flagged for pushing, say that pushing is detected.
@@ -154,9 +170,8 @@ def tool_specs(catalogue_actions: list[str]) -> list[dict]:
         fn("measure_exit_flow", "Measured flow through the zone's exits over the last 30 s, with capacity.",
            {"zone": {"type": "string"}}, ["zone"]),
         fn("forecast_action", "Predict the zone's density over the next 10 minutes under an action, with the mass balance. "
-           f"kind is one of {catalogue_actions}. For meter_entry give rate_per_min; for open_exit the width comes from the venue.",
-           {"zone": {"type": "string"}, "kind": {"type": "string"}, "target": {"type": "string"},
-            "rate_per_min": {"type": "number"}}, ["zone", "kind"]),
+           f"kind is one of {catalogue_actions}. A metering rate and a door's width come from the venue.",
+           {"zone": {"type": "string"}, "kind": {"type": "string"}, "target": {"type": "string"}}, ["zone", "kind"]),
         fn("propose_action", "Put one action in front of the steward for approval.",
            {"zone": {"type": "string"}, "forecast_id": {"type": "string"}, "radio_message": {"type": "string"},
             "rationale": {"type": "string"}}, ["zone", "forecast_id", "radio_message", "rationale"]),
@@ -265,7 +280,12 @@ class Episode:
             opts = [f"{x['kind']}:{x.get('target', '')}" for x in self.catalogue.actions.get(zone, [])]
             return {"error": f"action {kind}:{target} is not available in {zone}; available: {opts}"}
         spec = next((x for x in self.catalogue.actions.get(zone, []) if x["kind"] == kind and x.get("target", "") == target), {})
-        act = Action(kind, target, rate_pps=float(a.get("rate_per_min", spec.get("rate_per_min", 60))) / 60.0,
+        listed = spec.get("rate_per_min")  # a metering rate is the venue's, like a door's width
+        if kind == "meter_entry" and listed is not None and a.get("rate_per_min") not in (None, "") \
+                and round(float(a["rate_per_min"])) != round(float(listed)):
+            return {"error": f"{kind}:{target} meters at the venue's {listed} people/min, the rate its forecast error was "
+                             "measured at; forecast it without rate_per_min"}
+        act = Action(kind, target, rate_pps=float(listed if listed is not None else a.get("rate_per_min", 60)) / 60.0,
                      width_m=float(spec.get("width_m", 0)), share=float(spec.get("share", 1.0)))
         fc = self.tools["_forecast"](zone=zone, action=act)
         self.forecasts[fc.id] = fc
@@ -348,7 +368,7 @@ class Episode:
         if missing:
             return {"error": "before proposing, this episode needs: " + "; ".join(missing)}
         radio = (a.get("radio_message") or "").strip()
-        problems = self.radio_problems(radio)
+        problems = self.radio_problems(radio, act)
         if problems:
             return {"error": "radio_message: " + "; ".join(problems)}
         self._complete_forecasts()
@@ -441,7 +461,25 @@ class Episode:
                 out.append(f"{tok} ({kind})" if kind else tok)
         return out
 
-    def radio_problems(self, radio: str) -> list[str]:
+    def off_action_words(self, radio: str, act: dict) -> tuple[bool, list[str]]:
+        """Whether `radio` says the action `act`, and what it asks for besides: instruction words
+        of other kinds of action or outside the catalogue, and gates or doors that other actions
+        of the zone restrict or open."""
+        text = radio.lower()
+        words = set(re.findall(r"[a-z]+", text))
+        own = _ACTION_WORDS.get(act["kind"], set())
+        target = act.get("target", "").lower()
+        target_words = set(re.findall(r"[a-z]+", target))
+        says = bool(words & own) or (act["kind"] == "announce" and target_words - {"the", "is", "a"} <= words)
+        other = sorted(w for w in words & _INSTRUCTIONS if w not in own and w not in target_words)
+        for x in self.catalogue.actions.get(self.zone, []):
+            t = x.get("target", "").lower()
+            if x["kind"] in ("meter_entry", "hold_entry", "open_exit") and t and t not in target \
+                    and re.search(r"\b" + re.escape(t) + r"\b", text):
+                other.append(t)
+        return says, other
+
+    def radio_problems(self, radio: str, act: dict | None = None) -> list[str]:
         out = []
         words = len(radio.split())
         if not radio:
@@ -456,6 +494,14 @@ class Episode:
         bad = self.ungrounded_numbers(radio)
         if bad:
             out.append(f"it states {', '.join(bad)}, which no tool returned in this episode as that kind of number")
+        if act is not None:
+            says, other = self.off_action_words(radio, act)
+            name = f"{act['kind'].replace('_', ' ')} {act.get('target', '')}".strip()
+            if not says:
+                out.append(f"it must say the action proposed ({name})")
+            if other:
+                out.append(f"it asks for {', '.join(repr(w) for w in other)}, which is not the action proposed ({name}): "
+                           "the steward reads this message out, so it asks for that action only")
         return out
 
     @property
