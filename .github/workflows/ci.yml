@@ -1,0 +1,72 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    # x86_64, and aarch64: the architecture of the Graviton instance, installed the way
+    # deploy/setup_instance.sh installs it there
+    name: linux ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: deploy/requirements-graviton.txt
+      - name: Install (headless OpenCV 5, JuPedSim without its GUI extras)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r deploy/requirements-graviton.txt pytest==9.1.1 ruff==0.14.0
+          # no aarch64 Linux wheel on PyPI: pip builds JuPedSim from the sdist there (cached afterwards)
+          pip install --no-deps jupedsim==1.4.2
+          python -c "import platform, cv2, jupedsim; print(platform.machine(), 'OpenCV', cv2.__version__, 'JuPedSim', jupedsim.__version__)"
+      - name: Lint
+        run: ruff check src tests eval tools
+      - name: Unit tests
+        run: python -m pytest -q
+
+  windows:
+    # the steps in the README's "Run it", on the platform they are written for
+    name: windows x86_64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Install as in the README
+        shell: bash
+        run: |
+          python -m venv .venv
+          .venv/Scripts/python -m pip install --upgrade pip
+          .venv/Scripts/pip install -r requirements-dev.txt
+          .venv/Scripts/pip install -e . --no-deps
+          .venv/Scripts/pip install ruff==0.14.0
+          .venv/Scripts/python -c "import platform, cv2, jupedsim; print(platform.machine(), 'OpenCV', cv2.__version__, 'JuPedSim', jupedsim.__version__)"
+      - name: Lint
+        shell: bash
+        run: .venv/Scripts/python -m ruff check src tests eval tools
+      - name: Unit tests
+        shell: bash
+        run: .venv/Scripts/python -m pytest -q

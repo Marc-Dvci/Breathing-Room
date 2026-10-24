@@ -217,9 +217,12 @@ def compare_cloudwatch(trace: Trace, since_ts: float | None = None, client=None,
     now = time.time()
     matched = state.count("match")
     covered = sum(w and s != "match" for w, s in zip(witnessed, state))
-    pending = sum(not w and s == "missing" and now - e["ts"] < lag_s for w, s, e in zip(witnessed, state, entries))
+    # timestamps are rounded to the millisecond, so the newest can lie just ahead of `now`:
+    # with no lag allowed, a missing entry is never pending
+    pending = sum(not w and s == "missing" and lag_s > 0 and now - e["ts"] < lag_s
+                  for w, s, e in zip(witnessed, state, entries))
     bad = [e["hash"][:12] for w, s, e in zip(witnessed, state, entries)
-           if not w and not (s == "missing" and now - e["ts"] < lag_s)]
+           if not w and not (s == "missing" and lag_s > 0 and now - e["ts"] < lag_s)]
     msg = f"{matched} of {len(entries)} entries match the CloudWatch copy"
     if covered:
         msg += f"; {covered} never copied (written just before a restart) are fixed by the entry after them"

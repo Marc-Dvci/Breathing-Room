@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 
 from breathingroom import api
+from breathingroom import trace as trace_mod
 from breathingroom.stewards import FAILS_PER_CLIENT, Stewards, hash_pin
 from breathingroom.trace import Trace, _body, compare_cloudwatch, new_signing_key, verify, verify_signatures
 
@@ -146,7 +147,7 @@ def test_a_rewritten_trace_re_hashes_but_fails_its_signatures_and_the_cloudwatch
     assert cw["missing_in_cloudwatch"] == 1 and cw["different_in_cloudwatch"] == 1
 
 
-def test_an_entry_lost_before_its_copy_is_still_fixed_by_the_next_one(tmp_path):
+def test_an_entry_lost_before_its_copy_is_still_fixed_by_the_next_one(tmp_path, monkeypatch):
     tr = Trace(tmp_path / "t.jsonl")
     logs = FakeLogs()
     tr._cw, tr._group, tr._stream = logs, "g", "s"
@@ -154,6 +155,9 @@ def test_an_entry_lost_before_its_copy_is_still_fixed_by_the_next_one(tmp_path):
     tr.write("error", where="camera")
     logs.events.pop()  # the process stopped between the local write and the copy
     tr.write("start")
+    # the newest timestamp was rounded up past the clock: with no lag allowed it is still not pending
+    newest = json.loads((tmp_path / "t.jsonl").read_text(encoding="utf-8").splitlines()[-1])["ts"]
+    monkeypatch.setattr(trace_mod.time, "time", lambda: newest - 0.0004)
     cw = compare_cloudwatch(tr, lag_s=0)
     assert cw["ok"] and cw["matched"] == 2 and cw["covered_by_next"] == 1
     # the same gap at the end of the file is not covered: only lag excuses it, and only briefly
