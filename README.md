@@ -13,7 +13,7 @@ whether the action worked. After the evening, a safety officer reads a report ge
 tamper-evident record.
 
 **Live console:** <https://44-199-44-59.sslip.io> (public demonstration, no login; production mode needs a steward to sign in; it pauses when nobody is watching and
-starts a fresh evening for the next visitor) · **Film (4:35):** <https://youtu.be/zFVNj1GJoLQ> ·
+starts a fresh evening for the next visitor) · **Film (4:35):** <[https://youtu.be/zFVNj1GJoLQ](https://youtu.be/FGN9W4BmMDM)> ·
 **Technical report:** [docs/REPORT.md](docs/REPORT.md) · **Evening report:**
 <https://44-199-44-59.sslip.io/report> · **MCP endpoint:** `https://44-199-44-59.sslip.io/mcp` (read-only)
 
