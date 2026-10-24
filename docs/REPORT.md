@@ -517,7 +517,7 @@ returns the same count. On an AMD Zen 5 desktop at the same two threads the gap 
 way: 3,469 against 3,576 ms for the 960×720 frame, 2,057 against 1,949 ms for the zone crop, and
 8.4 against 6.5 s for a 1280×960 frame (new against classic; same counts;
 `bench/results/zen5_x86_2threads.json`). `density.DEFAULT_ENGINE` picks the classic engine on
-Arm. With the classic engine and the zone crop, one camera with DM-Count every 5 s needs
+Arm. Reported upstream as opencv/opencv#30504. With the classic engine and the zone crop, one camera with DM-Count every 5 s needs
 873 ms per second on the t4g.small. In the live console an agent's `cross_check_count` takes
 under 6 s and `check_camera` under 0.3 s. Measured with both models free to run at once on
 2 vCPUs and 2 GB, DM-Count on the whole frame with the new engine, and the features check every
